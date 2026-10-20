@@ -166,9 +166,6 @@
     select.value = mode;
     const id = String(++requestId);
     window.postMessage({ channel: CHANNEL, type: 'SET_MODE', mode, id }, location.origin);
-    if (mode !== 'default') {
-      void getMetadata();
-    }
     schedule();
   }
   select.addEventListener('change', () => setMode(select.value));
@@ -178,17 +175,26 @@
     if (payload?.channel !== CHANNEL || payload.type !== 'MODE_RESULT' ||
         payload.id !== String(requestId)) return;
     reactiveApplied = payload.applied === true;
+    if (Array.isArray(payload.metadata)) videos = payload.metadata;
     if (reactiveApplied) {
       resetInlineOrders();
-    } else {
-      // When Bilibili does not expose its reactive full-list state, let the
-      // document_start interceptor sort the original API response on one reload.
-      // A reload is preferable to scrolling through the user's page.
+    } else if (mode === 'default') {
+      // Restore the original native dataset if the page exposes no reactive state.
+      location.reload();
+      return;
+    } else if (!sortRenderedNativeCards()) {
+      // If native data was not intercepted, attempt the metadata API once.
+      // Otherwise reload once so the document_start hook sorts before rendering.
       const changedId = payload.id;
-      setTimeout(() => {
-        if (changedId !== String(requestId) || reactiveApplied || !isListPage()) return;
-        if (mode === 'default' || !sortRenderedNativeCards()) location.reload();
-      }, 120);
+      if (!videos) {
+        void getMetadata().then(() => {
+          if (changedId !== String(requestId) || !isListPage()) return;
+          if (!sortRenderedNativeCards()) location.reload();
+        });
+      } else {
+        location.reload();
+      }
+      return;
     }
     schedule();
   });
@@ -202,6 +208,5 @@
       !root.contains(record.target) && [...record.addedNodes, ...record.removedNodes].some(node => node !== root)
     )) schedule();
   }).observe(document.documentElement, { childList: true, subtree: true });
-  if (mode !== 'default') void getMetadata();
   schedule();
 })();
