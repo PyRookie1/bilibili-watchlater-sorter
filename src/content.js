@@ -17,6 +17,7 @@
   let videos = null;
   let count = 0;
   let pending = null;
+  let fetchError = null;
   let grid = null;
   let scheduled = false;
   let lastNodes = new Set();
@@ -153,7 +154,7 @@
       return;
     }
     if (!videos) {
-      setStatus('正在读取视频元数据…');
+      setStatus(fetchError ? '读取失败：' + fetchError : '正在读取视频元数据…', Boolean(fetchError));
       return;
     }
     const ranks = rankMap(videos, mode, sortVideos);
@@ -229,6 +230,7 @@
     if (!force && videos !== null) return;
     if (pending) return pending;
     refresh.disabled = true;
+    fetchError = null;
     setStatus('正在读取视频元数据…');
     pending = (async () => {
       try {
@@ -236,7 +238,8 @@
         videos = result.items;
         count = Number.isFinite(result.count) ? result.count : videos.length;
       } catch (error) {
-        setStatus('读取失败：' + (error instanceof Error ? error.message : '未知错误'), true);
+        fetchError = error instanceof Error ? error.message : '未知错误';
+        setStatus('读取失败：' + fetchError, true);
         if (videos === null) restoreOrders();
         return;
       } finally {
@@ -250,7 +253,7 @@
   function sync() {
     if (!mount()) return;
     applySort();
-    if (mode !== 'default' && videos === null && !pending) void loadData();
+    if (mode !== 'default' && videos === null && !pending && !fetchError) void loadData();
   }
   function scheduleSync() {
     if (scheduled) return;
