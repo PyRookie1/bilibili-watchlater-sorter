@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "B站稍后再看排序",
+  "version": "0.1.1",
+  "description": "按发布时间、视频总时长对B站稍后再看列表排序",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://api.bilibili.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.bilibili.com/watchlater*",
+        "https://www.bilibili.com/list/watchlater*"
+      ],
+      "js": [
+        "src/page-bridge.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/watchlater*",
+        "https://www.bilibili.com/list/watchlater*"
+      ],
+      "js": [
+        "src/sort.js",
+        "src/content.js"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "打开稍后再看排序面板"
+  }
+}
