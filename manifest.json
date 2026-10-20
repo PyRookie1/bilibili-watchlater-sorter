@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.2.0",
-  "description": "在B站稍后再看页面原生列表中，按发布时间、总时长排序",
+  "version": "0.3.0",
+  "description": "在B站稍后再看原页面中获取完整列表，按发布时间或全部分P总时长全量排序",
   "permissions": [
     "storage"
   ],
@@ -19,6 +19,7 @@
         "https://www.bilibili.com/list/watchlater*"
       ],
       "js": [
+        "src/api.js",
         "src/page-bridge.js"
       ],
       "run_at": "document_idle",
@@ -31,7 +32,6 @@
       ],
       "js": [
         "src/sort.js",
-        "src/native-sort.js",
         "src/content.js"
       ],
       "css": [
@@ -41,6 +41,6 @@
     }
   ],
   "action": {
-    "default_title": "打开稍后再看排序面板"
+    "default_title": "稍后再看全量排序"
   }
 }
