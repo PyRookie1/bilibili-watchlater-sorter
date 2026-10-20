@@ -42,16 +42,19 @@
   }
   function matchNativeEntries(entries, ranks, total) {
     const used = new Set();
-    const ranked = entries.map(({ host, card }) => {
+    const ranked = entries.map(({ host, card }, index) => {
       const key = keyFromCard(card);
       const rank = key === null ? undefined : ranks.get(key);
       if (rank !== undefined) used.add(rank);
-      return { host, key, rank };
+      return { host, key, rank, order: rank === undefined ? total + index : rank };
     });
     const matched = ranked.filter(x => x.rank !== undefined).length;
     return {
       ranked,
       matched,
+      // Progressive display is allowed without waiting for every native card.
+      // Only the complete flag establishes that all items are present.
+      usable: matched > 0 && used.size === matched,
       complete: Number.isSafeInteger(total) && total >= 0 && entries.length === total &&
         matched === total && used.size === total
     };
