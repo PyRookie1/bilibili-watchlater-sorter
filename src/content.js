@@ -19,7 +19,6 @@
   let loadPromise = null;
   let revision = 0;
   let scheduled = false;
-  let bridgeSerial = 0;
   let modified = new Map();
   let lastSuccess = false;
 
@@ -143,7 +142,7 @@
   }
   function sendToPage(type, data = {}, timeoutMs = 1200) {
     return new Promise((resolve, reject) => {
-      const id = 'wl-' + (++bridgeSerial) + '-' + crypto.randomUUID();
+      const id = crypto.randomUUID();
       const timer = setTimeout(() => finish(null), timeoutMs);
       function finish(value) {
         clearTimeout(timer);
