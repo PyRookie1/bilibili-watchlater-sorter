@@ -9,7 +9,9 @@
         typeof data.id !== 'string' || !/^[a-f0-9-]{16,64}$/.test(data.id)) return;
     let payload;
     try {
-      payload = await globalThis.WatchLaterApi.fetchCompleteList(fetch);
+      const expectedCount = Number.isSafeInteger(data.expectedCount) && data.expectedCount >= 0
+        ? data.expectedCount : undefined;
+      payload = await globalThis.WatchLaterApi.fetchCompleteList(fetch, { expectedCount });
     } catch (error) {
       payload = { ok: false, error: error instanceof Error ? error.message : '无法读取完整列表' };
     }
