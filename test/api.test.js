@@ -78,3 +78,18 @@ test('falls back on HTTP error and reports both errors on failure', async () => 
     /常规接口：HTTP 503.*网页接口：HTTP 503/
   );
 });
+
+test('treats reported 100/100 as incomplete when page heading says 423', async () => {
+  const urls = [];
+  const result = await fetchCompleteList(async url => {
+    urls.push(url);
+    return jsonResponse(url === ENDPOINTS[0] ? payload(100) : payload(423));
+  }, { expectedCount: 423 });
+  assert.equal(result.items.length, 423);
+  assert.deepEqual(urls, [...ENDPOINTS]);
+
+  await assert.rejects(
+    fetchCompleteList(async () => jsonResponse(payload(100)), { expectedCount: 423 }),
+    /页面显示 423 条，但接口只返回 100 条/
+  );
+});
