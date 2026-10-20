@@ -78,7 +78,7 @@ test('changing mode resorts the full Vue state in-place without DOM replacement'
   state.grid = { __vueParentComponent: instance, parentElement: null };
   const handler = events.get('message');
   handler({
-    source: sandbox, origin: 'https://www.bilibili.com',
+    source: vm.runInNewContext('globalThis', sandbox), origin: 'https://www.bilibili.com',
     data: { channel: 'wl-sorter-bilibili-v1', type: 'SET_MODE', id: '1', mode: 'published-desc' }
   });
   assert.equal(vueItems.length, 423);
@@ -87,7 +87,7 @@ test('changing mode resorts the full Vue state in-place without DOM replacement'
   assert.equal(storage.get('wl-sorter-mode'), 'published-desc');
   assert.equal(calls.at(-1).applied, true);
   handler({
-    source: sandbox, origin: 'https://www.bilibili.com',
+    source: vm.runInNewContext('globalThis', sandbox), origin: 'https://www.bilibili.com',
     data: { channel: 'wl-sorter-bilibili-v1', type: 'SET_MODE', id: '2', mode: 'default' }
   });
   assert.equal(vueItems[0].aid, 1);
@@ -96,7 +96,7 @@ test('changing mode resorts the full Vue state in-place without DOM replacement'
 test('ignores invalid sort mode messages', () => {
   const { sandbox, events, calls } = harness();
   events.get('message')({
-    source: sandbox, origin: 'https://www.bilibili.com',
+    source: vm.runInNewContext('globalThis', sandbox), origin: 'https://www.bilibili.com',
     data: { channel: 'wl-sorter-bilibili-v1', type: 'SET_MODE', mode: 'malicious' }
   });
   assert.equal(calls.length, 0);
