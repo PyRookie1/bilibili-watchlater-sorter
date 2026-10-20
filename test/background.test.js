@@ -3,59 +3,94 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname,'../src/background.js'),'utf8');
-function harness(body, status=200) {
+const WatchLaterApi = require('../src/api.js');
+const source = fs.readFileSync(path.join(__dirname, '../src/background.js'), 'utf8');
+
+function fixture(n, returned = n) {
+  return {
+    code: 0,
+    data: {
+      count: n,
+      list: Array.from({ length: returned }, (_, i) => ({
+        aid: i + 1, title: 'Demo ' + i, bvid: 'BV' + String(i).padStart(10, '0'),
+        duration: i + 10, pubdate: 100 + i, owner: { name: 'Uploader' }, confidential: 'do-not-forward'
+      }))
+    }
+  };
+}
+function harness(responses = [fixture(1)]) {
   let listener;
+  let action;
   const calls = [];
   const chrome = {
-    runtime:{id:'extension-test-id',onMessage:{addListener(fn){listener=fn;}}},
-    action:{onClicked:{addListener(){}}},
-    tabs:{sendMessage(){},create(){}}
+    runtime: { id: 'extension-test-id', onMessage: { addListener(fn) { listener = fn; } } },
+    action: { onClicked: { addListener(fn) { action = fn; } } },
+    tabs: { sendMessage() {}, create() {} }
   };
-  const fetch = async (url,options) => {
-    calls.push({url,options});
-    return {ok:status>=200&&status<300,status,async json(){return body;}};
+  const fetch = async (url, options) => {
+    calls.push({ url, options });
+    const response = responses[Math.min(calls.length - 1, responses.length - 1)];
+    const status = response?.status || 200;
+    return { ok: status >= 200 && status < 300, status, async json() { return response?.body || response; } };
   };
-  vm.runInNewContext(source,{chrome,fetch,URL,AbortController,setTimeout,clearTimeout});
-  const sender = {id:chrome.runtime.id,url:'https://www.bilibili.com/list/watchlater'};
-  const request = (from=sender) => new Promise((resolve,reject) => {
+  vm.runInNewContext(source, { chrome, fetch, WatchLaterApi, importScripts() {}, URL, console });
+  const sender = { id: chrome.runtime.id, url: 'https://www.bilibili.com/watchlater/list#/list' };
+  const request = (from = sender) => new Promise((resolve, reject) => {
     try {
-      const reply = listener({type:'WL_SORTER_FETCH'},from,resolve);
-      if (reply===false) resolve('rejected');
-    } catch(e) {reject(e);}
+      const reply = listener({ type: 'WL_SORTER_FETCH' }, from, resolve);
+      if (reply === false) resolve('rejected');
+    } catch (error) { reject(error); }
   });
-  return {request,calls};
+  return { request, calls, action };
 }
-test('fetches login-based watch later list, returns only expected fields',async()=>{
-  const {request,calls}=harness({code:0,data:{count:1,list:[{
-    bvid:'BV1AB411c7mD',title:'Demo',duration:123,pubdate:1000,
-    owner:{name:'Uploader'},confidential:'do-not-forward'
-  }]}});
-  const output=await request();
-  assert.equal(output.ok,true);
-  assert.equal(output.count,1);
-  assert.equal(output.items[0].owner,'Uploader');
-  assert.equal(Object.hasOwn(output.items[0],'confidential'),false);
-  assert.equal(calls[0].url,'https://api.bilibili.com/x/v2/history/toview');
-  assert.equal(calls[0].options.credentials,'include');
+
+test('background returns complete watch later records and only allowed fields', async () => {
+  const { request, calls } = harness([fixture(423)]);
+  const result = await request();
+  assert.equal(result.ok, true);
+  assert.equal(result.items.length, 423);
+  assert.equal(result.count, 423);
+  assert.equal(result.items[0].owner, 'Uploader');
+  assert.equal(Object.hasOwn(result.items[0], 'confidential'), false);
+  assert.equal(calls[0].url, WatchLaterApi.ENDPOINTS[0]);
+  assert.equal(calls[0].options.credentials, 'include');
 });
-test('rejects requests from other pages and extensions',async()=>{
-  const {request,calls}=harness({code:0,data:{count:0,list:[]}});
-  for(const from of [
-    {id:'other',url:'https://www.bilibili.com/list/watchlater'},
-    {id:'extension-test-id',url:'https://evil.example/watchlater'},
-    {id:'extension-test-id',url:'https://www.bilibili.com/video/BV1AB411c7mD'},
-    {id:'extension-test-id',url:'https://www.bilibili.com/watchlater-evil'}
-  ]) assert.equal(await request(from),'rejected');
-  assert.equal(calls.length,0);
+
+test('background falls back when first response is incomplete', async () => {
+  const { request, calls } = harness([fixture(423, 100), fixture(423)]);
+  const result = await request();
+  assert.equal(result.ok, true);
+  assert.equal(result.items.length, 423);
+  assert.equal(calls.length, 2);
 });
-test('returns errors for invalid login, malformed response, HTTP failure',async()=>{
-  assert.match((await harness({code:-101}).request()).error,/登录状态/);
-  assert.match((await harness({code:0,data:{list:null}}).request()).error,/格式/);
-  assert.match((await harness({},412).request()).error,/412/);
+
+test('background never treats 100/423 as full list', async () => {
+  const { request } = harness([fixture(423, 100)]);
+  const result = await request();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /100 \/ 423/);
 });
-test('also accepts legacy watch later URL',async()=>{
-  const {request}=harness({code:0,data:{count:0,list:[]}});
-  const result=await request({id:'extension-test-id',url:'https://www.bilibili.com/watchlater/list/'});
-  assert.equal(result.ok,true);
+
+test('rejects requests outside watch later and from other extensions', async () => {
+  const { request, calls } = harness();
+  for (const from of [
+    { id: 'other', url: 'https://www.bilibili.com/watchlater/list#/list' },
+    { id: 'extension-test-id', url: 'https://evil.example/watchlater' },
+    { id: 'extension-test-id', url: 'https://www.bilibili.com/video/BV1AB411c7mD' },
+    { id: 'extension-test-id', url: 'https://www.bilibili.com/watchlater-evil' }
+  ]) assert.equal(await request(from), 'rejected');
+  assert.equal(calls.length, 0);
+});
+
+test('returns API errors and accepts legacy and modern page URLs', async () => {
+  const { request } = harness([{ code: -101 }]);
+  assert.match((await request()).error, /未登录/);
+  for (const url of [
+    'https://www.bilibili.com/watchlater/list#/list',
+    'https://www.bilibili.com/watchlater/#/list',
+    'https://www.bilibili.com/list/watchlater'
+  ]) {
+    const ctx = harness([fixture(0)]);
+    assert.equal((await ctx.request({ id: 'extension-test-id', url })).ok, true);
+  }
 });
