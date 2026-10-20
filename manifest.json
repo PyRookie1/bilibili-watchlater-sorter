@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.5.0",
-  "description": "在B站原生稍后再看列表中按发布时间与总时长排序，不滚屏、不替换卡片",
+  "version": "0.5.1",
+  "description": "修复稍后再看排序无响应：完整数据读取、原生卡片渐进排序及页面数据同步",
   "permissions": [
     "storage"
   ],
