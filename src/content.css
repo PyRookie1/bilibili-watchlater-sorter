@@ -20,3 +20,10 @@
 }
 #wl-sorter-root .wl-sorter-select:hover { border-color: #00aeec; }
 #wl-sorter-root .wl-sorter-select:focus-visible { outline: 2px solid #00aeec; outline-offset: 2px; }
+
+#wl-sorter-root .wl-sorter-error[hidden] { display: none !important; }
+#wl-sorter-root .wl-sorter-error {
+  display: inline-block; max-width: 240px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: #d03050; font-size: 12px;
+}
