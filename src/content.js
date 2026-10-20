@@ -247,8 +247,12 @@
     scheduled = true;
     setTimeout(() => {
       scheduled = false;
-      if (!mount() || mode === 'default' || !videos || !lastSuccess) return;
-      sortVisibleCards();
+      if (!mount() || mode === 'default' || !videos) return;
+      const result = sortVisibleCards();
+      if (result.applied) {
+        lastSuccess = true;
+        if (status.textContent === '无法匹配原生视频卡片；当前页面排序未生效') report('');
+      }
     }, 120);
   }
   select.addEventListener('change', () => { void choose(select.value); });
