@@ -33,10 +33,14 @@
       list: SORT.sortVideos(body.data.list, selected) } };
   }
   function itemId(item) {
-    const source = item?.archive || item?.video || item?.info || item;
-    if (typeof source?.bvid === 'string' && /^BV[0-9a-zA-Z]{10}$/.test(source.bvid))
-      return 'bv:' + source.bvid;
-    if (Number.isSafeInteger(source?.aid) && source.aid > 0) return 'av:' + source.aid;
+    // Real pages wrap video records differently (archive/video_info/videoInfo).
+    const sources = [item, item?.archive, item?.video_info, item?.videoInfo,
+      item?.video, item?.info, item?.data];
+    for (const source of sources) {
+      if (typeof source?.bvid === 'string' && /^BV[0-9a-zA-Z]{10}$/.test(source.bvid))
+        return 'bv:' + source.bvid;
+      if (Number.isSafeInteger(source?.aid) && source.aid > 0) return 'av:' + source.aid;
+    }
     return null;
   }
   function rearrangeNativeState(grid = document.querySelector('.watchlater-list-container')) {
@@ -158,14 +162,26 @@
   root.addEventListener('message', event => {
     if (event.source !== root || event.origin !== location.origin) return;
     const data = event.data;
-    if (data?.channel !== CHANNEL || data.type !== 'SET_MODE' || !SORT.isSortMode(data.mode)) return;
+    if (data?.channel !== CHANNEL || typeof data.id !== 'string') return;
+    if (data.type === 'GET_SNAPSHOT') {
+      root.postMessage({ channel: CHANNEL, type: 'SNAPSHOT_RESULT', id: data.id,
+        items: lastUnsorted?.map(video => ({
+          aid: video.aid, bvid: video.bvid, pubdate: video.pubdate, duration: video.duration
+        })) || null }, location.origin);
+      return;
+    }
+    if (data.type !== 'SET_MODE' || !SORT.isSortMode(data.mode)) return;
     mode = data.mode;
     try { localStorage.setItem(STORE, mode); } catch {}
+    // The page may use a different API endpoint, so receive validated complete
+    // metadata from the extension instead of relying on the XHR interception.
+    if (Array.isArray(data.items) && Number.isSafeInteger(data.count) &&
+        data.count === data.items.length && data.items.length <= 10000 &&
+        data.items.every(video => video && typeof video === 'object')) {
+      lastUnsorted = data.items.slice();
+    }
     const applied = rearrangeNativeState();
-    const metadata = lastUnsorted?.map(video => ({
-      aid: video.aid, bvid: video.bvid, pubdate: video.pubdate, duration: video.duration
-    })) || null;
-    root.postMessage({ channel: CHANNEL, type: 'MODE_RESULT', id: data.id, applied, metadata }, location.origin);
+    root.postMessage({ channel: CHANNEL, type: 'MODE_RESULT', id: data.id, applied }, location.origin);
   });
 
   root.WatchLaterNativeBridge = Object.freeze({
