@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.3.0",
-  "description": "在B站稍后再看原页面中获取完整列表，按发布时间或全部分P总时长全量排序",
+  "version": "0.4.0",
+  "description": "在B站稍后再看原生卡片上全量排序，不使用独立扩展视图",
   "permissions": [
     "storage"
   ],
@@ -32,6 +32,7 @@
       ],
       "js": [
         "src/sort.js",
+        "src/native-sort.js",
         "src/content.js"
       ],
       "css": [
@@ -41,6 +42,6 @@
     }
   ],
   "action": {
-    "default_title": "稍后再看全量排序"
+    "default_title": "原生稍后再看全量排序"
   }
 }
