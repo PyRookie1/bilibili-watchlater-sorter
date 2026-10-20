@@ -215,6 +215,9 @@
       }
     }
     if (current !== revision || !isListPage()) return;
+    // Show the ordering of available native cards immediately while the
+    // page-world bridge attempts to update the complete reactive list.
+    if (mode !== 'default') sortVisibleCards();
     // The page-world bridge can update the full Vue list even if Bilibili
     // fetches it via an endpoint unknown to the network interceptor.
     const response = await sendToPage('SET_MODE', {
