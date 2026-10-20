@@ -101,3 +101,41 @@ test('ignores invalid sort mode messages', () => {
   });
   assert.equal(calls.length, 0);
 });
+
+test('XHR response interception preserves native response shape and API write requests', () => {
+  const events = new Map();
+  class FakeXHR {
+    constructor() { this.readyState = 0; this.status = 200; this.responseType = ''; this._payload = body(); }
+    open(method, url) { this.method = method; this.url = url; this.readyState = 1; }
+    get responseText() { return JSON.stringify(this._payload); }
+    get response() { return this.responseType === 'json' ? this._payload : this.responseText; }
+  }
+  const store = new Map([['wl-sorter-mode','published-desc']]);
+  const scope = {
+    URL, Request, Response, Headers, setTimeout, clearTimeout,
+    XMLHttpRequest: FakeXHR,
+    location: { origin: 'https://www.bilibili.com', href: 'https://www.bilibili.com/watchlater/list#/list' },
+    document: { querySelector() { return null; } },
+    localStorage: { getItem: key => store.get(key), setItem: (key,val) => store.set(key,val) },
+    addEventListener: (name, callback) => events.set(name,callback),
+    postMessage() {},
+    fetch: async () => new Response(JSON.stringify(body()), { status: 200 })
+  };
+  scope.globalThis = scope;
+  vm.runInNewContext(sortCode, scope);
+  vm.runInNewContext(interceptCode, scope);
+  const xhr = new scope.XMLHttpRequest();
+  xhr.open('GET','https://api.bilibili.com/x/v2/history/toview/web?jsonp=jsonp');
+  xhr.readyState = 4;
+  assert.equal(JSON.parse(xhr.responseText).data.list[0].aid, 423);
+  assert.equal(JSON.parse(xhr.response).data.list[0].aid, 423);
+  const jsonXHR = new scope.XMLHttpRequest();
+  jsonXHR.responseType = 'json';
+  jsonXHR.open('GET','https://api.bilibili.com/x/v2/history/toview');
+  jsonXHR.readyState = 4;
+  assert.equal(jsonXHR.response.data.list[0].aid, 423);
+  const write = new scope.XMLHttpRequest();
+  write.open('POST','https://api.bilibili.com/x/v2/history/toview/del');
+  write.readyState = 4;
+  assert.equal(JSON.parse(write.responseText).data.list[0].aid, 1);
+});
