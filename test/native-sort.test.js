@@ -46,3 +46,34 @@ test('refuses partial, unmatched, duplicate, and miscounted cards', () => {
   assert.equal(native.matchNativeEntries([valid[0],valid[0],valid[2]],ranks,3).complete,false);
   assert.equal(native.matchNativeEntries([{host:{},card:card('/watchlater/list')},...valid.slice(1)],ranks,3).complete,false);
 });
+
+test('progressively orders 15 visible cards using ranks from all 423 metadata records', () => {
+  const all = Array.from({length:423}, (_,i) => ({
+    bvid: 'BV' + String(i+1).padStart(10, '0'),
+    aid: i+1, duration: 1000-i, pubdate: 1000+i
+  }));
+  const ranks = native.ranksFromVideos(all, 'duration-asc', sortVideos);
+  const subset = all.slice(0,15).map(video => ({
+    host: { originalId: video.aid },
+    card: card('/video/' + video.bvid)
+  }));
+  const result = native.matchNativeEntries(subset, ranks, all.length);
+  assert.equal(result.complete, false);
+  assert.equal(result.usable, true);
+  assert.equal(result.matched, 15);
+  assert.equal(result.ranked[0].order, 422);
+  assert.equal(result.ranked[14].order, 408);
+  assert.equal(result.ranked[0].host, subset[0].host);
+});
+test('unmatched native cards follow ranked cards without crashing sorting', () => {
+  const ranks = native.ranksFromVideos(items, 'duration-asc', sortVideos);
+  const source = [
+    { host: { id:'a' }, card: card('/video/BV3AB411c7mD') },
+    { host: { id:'x' }, card: card('/unknown') },
+    { host: { id:'b' }, card: card('/video/BV1AB411c7mD') }
+  ];
+  const result = native.matchNativeEntries(source,ranks,3);
+  assert.equal(result.usable,true);
+  assert.equal(result.complete,false);
+  assert.deepEqual(result.ranked.map(item=>item.order),[1,4,0]);
+});
