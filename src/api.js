@@ -41,6 +41,10 @@
         });
         if (!response.ok) throw new Error('HTTP ' + response.status);
         const result = parseCompleteResponse(await response.json());
+        if (Number.isSafeInteger(options.expectedCount) && options.expectedCount >= 0 &&
+            result.count !== options.expectedCount) {
+          throw new Error('页面显示 ' + options.expectedCount + ' 条，但接口只返回 ' + result.count + ' 条');
+        }
         return { ...result, endpoint: url };
       } catch (error) {
         errors.push(url.includes('/web') ? '网页接口：' + (error.message || String(error)) :
