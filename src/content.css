@@ -36,7 +36,9 @@
   border: 1px solid #e3e5e7;
   border-radius: 7px;
   background: #f6f7f8;
-  font: 20px/1 inherit;
+  font-size: 20px;
+  line-height: 1;
+  font-family: inherit;
   color: #61666d;
   cursor: pointer;
 }
