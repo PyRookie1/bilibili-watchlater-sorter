@@ -1,7 +1,6 @@
 #wl-sorter-root {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   vertical-align: middle;
   white-space: nowrap;
   color: #61666d;
@@ -9,73 +8,15 @@
 }
 #wl-sorter-root * { box-sizing: border-box; }
 #wl-sorter-root[data-placement='fallback'] {
-  display: flex;
-  width: 100%;
-  justify-content: flex-end;
-  padding: 10px 0;
-  margin-bottom: 8px;
+  display: flex; width: 100%; justify-content: flex-end;
+  padding: 6px 0; margin-bottom: 4px;
 }
-#wl-sorter-root .wl-sorter-label { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; }
+#wl-sorter-root .wl-sorter-label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 #wl-sorter-root .wl-sorter-select {
-  width: 185px; height: 32px; padding: 0 9px;
+  height: 32px; max-width: 190px; padding: 0 9px;
   border: 1px solid #e3e5e7; border-radius: 7px;
   background: #f6f7f8; color: #61666d;
   font: inherit; cursor: pointer;
 }
 #wl-sorter-root .wl-sorter-select:hover { border-color: #00aeec; }
-#wl-sorter-root .wl-sorter-refresh {
-  width: 32px; height: 32px; flex: 0 0 32px;
-  border: 1px solid #e3e5e7; border-radius: 7px;
-  background: #f6f7f8; color: #61666d;
-  font: 20px/1 -apple-system, BlinkMacSystemFont, sans-serif;
-  cursor: pointer;
-}
-#wl-sorter-root .wl-sorter-refresh:disabled { opacity: .5; cursor: wait; }
-#wl-sorter-root .wl-sorter-refresh:hover { color: #00aeec; }
-#wl-sorter-root .wl-sorter-status {
-  display: inline-block; max-width: 200px;
-  overflow: hidden; text-overflow: ellipsis;
-  color: #9499a0; font-size: 12px;
-}
-#wl-sorter-root .wl-sorter-status[data-error='true'] { color: #d03050; max-width: 360px; }
-#wl-sorter-root :is(select, button):focus-visible { outline: 2px solid #00aeec; outline-offset: 2px; }
-@media (max-width: 1150px) { #wl-sorter-root .wl-sorter-status { display: none; } }
-@media (max-width: 750px) {
-  #wl-sorter-root .wl-sorter-label { font-size: 0; gap: 0; }
-  #wl-sorter-root .wl-sorter-select { width: 150px; font-size: 12px; }
-}
-
-/* Opaque preparation curtain: native lazy loading runs behind it, not on screen. */
-#wl-sorter-preparing[hidden] { display: none !important; }
-#wl-sorter-preparing {
-  position: fixed;
-  inset: 0;
-  z-index: 2147483646;
-  display: grid;
-  place-items: center;
-  background: #f6f7f8;
-  color: #18191c;
-  font: 14px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
-}
-#wl-sorter-preparing .wl-sorter-preparing-panel {
-  max-width: min(440px, calc(100vw - 48px));
-  padding: 28px 32px;
-  text-align: center;
-  border: 1px solid #e3e5e7;
-  border-radius: 12px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.06);
-  background: #fff;
-}
-#wl-sorter-preparing strong { display: block; font-size: 18px; font-weight: 600; }
-#wl-sorter-preparing .wl-sorter-preparing-text { color: #61666d; margin: 14px 0 20px; }
-#wl-sorter-preparing button {
-  min-width: 88px;
-  padding: 7px 15px;
-  background: #f6f7f8;
-  color: #61666d;
-  border: 1px solid #e3e5e7;
-  border-radius: 6px;
-  cursor: pointer;
-}
-#wl-sorter-preparing button:hover { color: #00aeec; border-color: #00aeec; }
-#wl-sorter-preparing button:focus-visible { outline: 2px solid #00aeec; outline-offset: 3px; }
+#wl-sorter-root .wl-sorter-select:focus-visible { outline: 2px solid #00aeec; outline-offset: 2px; }
