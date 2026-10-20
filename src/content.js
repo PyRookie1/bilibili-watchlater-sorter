@@ -1,7 +1,8 @@
 (() => {
   'use strict';
   if (document.getElementById('wl-sorter-root')) return;
-  const { sortVideos, isSortMode, formatDuration, formatPublished, coverLink } = globalThis.WatchLaterSort;
+  const { sortVideos, isSortMode } = globalThis.WatchLaterSort;
+  const { ranksFromVideos, matchNativeEntries } = globalThis.WatchLaterNativeSort;
   const CHANNEL = 'wl-sorter-bilibili-v1';
   const STORAGE_KEY = 'wl-sorter-mode';
   const OPTIONS = [
@@ -11,64 +12,48 @@
     ['duration-asc', '总时长：短到长'],
     ['duration-desc', '总时长：长到短']
   ];
-  const BV_RE = /^BV[0-9a-zA-Z]{10}$/;
   let mode = 'default';
   let videos = null;
-  let count = 0;
-  let pending = null;
-  let fetchError = null;
+  let total = 0;
   let nativeGrid = null;
-  let originalGridDisplay = null;
+  let pending = null;
+  let state = 'idle';
+  let operation = 0;
   let scheduled = false;
-  let renderedMode = null;
-  let renderedVideos = null;
+  const originalOrders = new Map();
 
   const root = document.createElement('div');
   root.id = 'wl-sorter-root';
-  root.setAttribute('aria-label', '稍后再看全量排序工具');
-
+  root.setAttribute('aria-label', '稍后再看原生列表排序');
   const label = document.createElement('label');
   label.className = 'wl-sorter-label';
   label.textContent = '扩展排序';
   const select = document.createElement('select');
   select.className = 'wl-sorter-select';
-  select.setAttribute('aria-label', '对完整稍后再看列表排序');
-  for (const [value, text] of OPTIONS) {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = text;
-    select.append(option);
+  select.setAttribute('aria-label', '对完整稍后再看列表进行原生卡片排序');
+  for (const [value, name] of OPTIONS) {
+    const item = document.createElement('option');
+    item.value = value;
+    item.textContent = name;
+    select.append(item);
   }
   label.append(select);
   const refresh = document.createElement('button');
   refresh.type = 'button';
   refresh.className = 'wl-sorter-refresh';
+  refresh.title = '重新获取全部视频并排序';
+  refresh.setAttribute('aria-label', '刷新完整列表');
   refresh.textContent = '↻';
-  refresh.title = '重新获取完整列表';
-  refresh.setAttribute('aria-label', '重新获取完整列表');
   const status = document.createElement('span');
   status.className = 'wl-sorter-status';
   status.setAttribute('role', 'status');
   status.setAttribute('aria-live', 'polite');
   root.append(label, refresh, status);
 
-  const fullGrid = document.createElement('div');
-  fullGrid.id = 'wl-sorter-full-list';
-  fullGrid.setAttribute('aria-label', '按扩展规则排序的全部稍后再看视频');
-  fullGrid.hidden = true;
-  const warning = document.createElement('div');
-  warning.id = 'wl-sorter-warning';
-  warning.setAttribute('role', 'alert');
-  warning.hidden = true;
-
-  function setStatus(text, error = false) {
-    if (status.textContent !== text) status.textContent = text;
+  function setStatus(text, isError = false) {
+    status.textContent = text;
     status.title = text;
-    status.dataset.error = String(error);
-  }
-  function setWarning(text = '') {
-    warning.textContent = text;
-    warning.hidden = !text;
+    status.dataset.error = String(isError);
   }
   function isListPage() {
     if (!/^\/(?:watchlater(?:\/list)?|list\/watchlater)\/?$/.test(location.pathname)) return false;
@@ -78,265 +63,294 @@
     return document.querySelector('.watchlater-list-container');
   }
   function findNativeSort(grid) {
-    // Bilibili has used several kinds of dropdown trigger.
-    const candidates = document.querySelectorAll('button, [role="button"], [class*="sort"], span');
-    const gridBounds = grid.getBoundingClientRect();
-    for (const el of candidates) {
-      if (root.contains(el) || !el.isConnected) continue;
-      const text = el.textContent?.replace(/[\s▼▽⌄▾∨]/g, '');
+    const gridTop = grid.getBoundingClientRect().top;
+    for (const element of document.querySelectorAll('button, [role="button"], [class*="sort"], span')) {
+      if (root.contains(element)) continue;
+      const text = element.textContent?.replace(/[\s▼▽⌄▾∨]/g, '');
       if (text !== '最近添加' && text !== '最早添加') continue;
-      const bounds = el.getBoundingClientRect();
-      if (bounds.width && bounds.height && bounds.top <= gridBounds.top && bounds.left >= gridBounds.left) {
-        return el.closest('button, [role="button"], [class*="dropdown"], [class*="sort"], [class*="select"]') || el;
-      }
+      const bounds = element.getBoundingClientRect();
+      if (!bounds.width || !bounds.height || bounds.top > gridTop) continue;
+      return element.closest('button, [role="button"], [class*="dropdown"], [class*="sort"], [class*="select"]') || element;
     }
     return null;
   }
-  function restoreNative() {
-    fullGrid.hidden = true;
-    if (nativeGrid && originalGridDisplay) {
-      const { value, priority } = originalGridDisplay;
-      if (value) nativeGrid.style.setProperty('display', value, priority);
-      else nativeGrid.style.removeProperty('display');
-      originalGridDisplay = null;
+  function restoreNativeOrders() {
+    for (const [node, prior] of originalOrders) {
+      if (prior.value) node.style.setProperty('order', prior.value, prior.priority);
+      else node.style.removeProperty('order');
     }
-  }
-  function hideNative() {
-    if (!nativeGrid) return;
-    if (!originalGridDisplay) {
-      originalGridDisplay = {
-        value: nativeGrid.style.getPropertyValue('display'),
-        priority: nativeGrid.style.getPropertyPriority('display')
-      };
-    }
-    nativeGrid.style.setProperty('display', 'none', 'important');
-    fullGrid.hidden = false;
+    originalOrders.clear();
   }
   function mount() {
-    const nextGrid = isListPage() ? findGrid() : null;
-    if (!nextGrid) {
-      restoreNative();
-      root.remove();
-      fullGrid.remove();
-      warning.remove();
+    const grid = isListPage() ? findGrid() : null;
+    if (!grid) {
+      if (nativeGrid) {
+        operation++;
+        state = 'idle';
+        restoreNativeOrders();
+      }
       nativeGrid = null;
+      root.remove();
       return false;
     }
-    if (nextGrid !== nativeGrid) {
-      restoreNative();
-      nativeGrid = nextGrid;
+    if (nativeGrid !== grid) {
+      operation++;
+      state = 'idle';
+      restoreNativeOrders();
+      nativeGrid = grid;
       root.remove();
-      fullGrid.remove();
-      warning.remove();
-    }
-    const parent = nextGrid.parentElement;
-    if (!parent) return false;
-    if (warning.parentElement !== parent || warning.nextElementSibling !== fullGrid) {
-      parent.insertBefore(warning, nextGrid.nextSibling);
-      parent.insertBefore(fullGrid, warning.nextSibling);
     }
     if (!root.isConnected) {
-      const nativeSort = findNativeSort(nextGrid);
-      const host = nativeSort?.parentElement || parent;
+      const nativeSort = findNativeSort(grid);
+      const host = nativeSort?.parentElement || grid.parentElement;
+      if (!host) return false;
       root.dataset.placement = nativeSort ? 'inline' : 'fallback';
       if (nativeSort) host.insertBefore(root, nativeSort);
-      else host.insertBefore(root, nextGrid);
+      else host.insertBefore(root, grid);
     }
     return true;
   }
-  function make(tag, className, text) {
-    const element = document.createElement(tag);
-    if (className) element.className = className;
-    if (text !== undefined) element.textContent = String(text);
-    return element;
+  function scanCards() {
+    if (!nativeGrid?.isConnected) return null;
+    const cards = [...nativeGrid.querySelectorAll('.video-card')];
+    if (!cards.length) return { count: 0, entries: [], layout: null };
+    // Find a flex/grid parent with one native card per direct child.
+    let layout = cards[0].parentElement;
+    while (layout && (layout === nativeGrid || nativeGrid.contains(layout))) {
+      const entries = [];
+      const hosts = new Set();
+      for (const card of cards) {
+        let host = card;
+        while (host.parentElement && host.parentElement !== layout) host = host.parentElement;
+        if (host.parentElement !== layout || hosts.has(host)) break;
+        hosts.add(host);
+        entries.push({ card, host });
+      }
+      const display = getComputedStyle(layout).display;
+      if (entries.length === cards.length && ['grid', 'inline-grid', 'flex', 'inline-flex'].includes(display)) {
+        return { count: cards.length, entries, layout };
+      }
+      layout = layout.parentElement;
+    }
+    return { count: cards.length, entries: [], layout: null };
   }
-  function renderCard(item) {
-    const article = make('article', 'wl-sorter-card');
-    const key = typeof item.bvid === 'string' && BV_RE.test(item.bvid) ? item.bvid : null;
-    const url = key ? 'https://www.bilibili.com/video/' + key :
-      Number.isSafeInteger(item.aid) && item.aid > 0 ? 'https://www.bilibili.com/video/av' + item.aid : null;
-    const link = url ? make('a', 'wl-sorter-link') : make('div', 'wl-sorter-link');
-    if (url) {
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      link.title = '在新标签页打开视频';
+  function applyOrder() {
+    if (!videos || !nativeGrid) return false;
+    if (total === 0) {
+      setStatus('原生列表 0/0');
+      return true;
     }
-    const cover = make('div', 'wl-sorter-cover');
-    const coverURL = coverLink(item.pic);
-    if (coverURL) {
-      const image = document.createElement('img');
-      image.src = coverURL;
-      image.alt = '';
-      image.loading = 'lazy';
-      image.decoding = 'async';
-      image.referrerPolicy = 'no-referrer';
-      cover.append(image);
-    } else {
-      cover.append(make('span', 'wl-sorter-placeholder', '无封面'));
+    const scanned = scanCards();
+    if (!scanned || !scanned.layout || scanned.count !== total) return false;
+    const ranks = ranksFromVideos(videos, mode, sortVideos);
+    const mapping = matchNativeEntries(scanned.entries, ranks, total);
+    if (!mapping.complete) return false;
+    const current = new Set(scanned.entries.map(entry => entry.host));
+    for (const [node, prior] of originalOrders) {
+      if (!current.has(node)) {
+        if (prior.value) node.style.setProperty('order', prior.value, prior.priority);
+        else node.style.removeProperty('order');
+        originalOrders.delete(node);
+      }
     }
-    cover.append(make('span', 'wl-sorter-duration', formatDuration(item.duration)));
-    link.append(cover, make('span', 'wl-sorter-title', item.title || '视频已失效或标题缺失'));
-    article.append(link);
-    const metadata = make('div', 'wl-sorter-meta');
-    metadata.append(make('span', 'wl-sorter-owner', item.owner || 'UP主未知'));
-    metadata.append(make('span', 'wl-sorter-published', '发布 ' + formatPublished(item.pubdate)));
-    article.append(metadata);
-    return article;
-  }
-  function renderSortedList() {
-    if (renderedMode === mode && renderedVideos === videos) return;
-    const fragment = document.createDocumentFragment();
-    const note = make('div', 'wl-sorter-note',
-      '完整列表 ' + count + ' / ' + count + ' · 当前为扩展视图；原生搜索、筛选、删除及连播请切换回「B站默认顺序」。');
-    fragment.append(note);
-    for (const video of sortVideos(videos, mode)) fragment.append(renderCard(video));
-    if (!videos.length) fragment.append(make('p', 'wl-sorter-empty', '稍后再看列表为空'));
-    fullGrid.replaceChildren(fragment);
-    renderedMode = mode;
-    renderedVideos = videos;
-  }
-  function syncView() {
-    if (!mount()) return;
-    if (mode === 'default') {
-      restoreNative();
-      setWarning();
-      setStatus('原生列表');
-      return;
-    }
-    if (!videos) {
-      restoreNative();
-      setStatus(fetchError ? '全量获取失败' : '读取完整列表中…', Boolean(fetchError));
-      if (fetchError) setWarning(fetchError + '。已保留 B 站原始列表，请点击刷新重试。');
-      return;
-    }
-    // Fail closed: never disguise an incomplete response as a complete list.
-    if (count !== videos.length) {
-      restoreNative();
-      setWarning('接口返回 ' + videos.length + ' / ' + count + ' 条，未启用全量排序。');
-      setStatus('列表不完整', true);
-      return;
-    }
-    setWarning();
-    renderSortedList();
-    hideNative();
-    setStatus('已全量排序 ' + videos.length + '/' + count);
+    mapping.ranked.forEach(({ host, rank }) => {
+      if (!originalOrders.has(host)) originalOrders.set(host, {
+        value: host.style.getPropertyValue('order'),
+        priority: host.style.getPropertyPriority('order')
+      });
+      host.style.setProperty('order', String(rank), 'important');
+    });
+    setStatus('原生列表已全量排序 ' + total + '/' + total);
+    return true;
   }
   function readDisplayedTotal() {
-    // Bilibili shows the complete count beside the page title (e.g. 稍后再看 · 423).
-    // The DOM tag/class changes often, so use visible text and a strict adjacent-number match.
-    const visibleText = document.body?.innerText || '';
-    const match = visibleText.slice(0, 3500).match(/稍后再看\s*[·:：]?\s*(\d{1,6})(?!\d)/);
+    const text = document.body?.innerText || '';
+    const match = text.slice(0, 3500).match(/稍后再看\s*[·:：]?\s*(\d{1,6})(?!\d)/);
     return match ? Number(match[1]) : null;
   }
   function fetchFromPage(expectedCount) {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
-      let finished = false;
+      let settled = false;
       const timer = setTimeout(() => finish(new Error('页面请求超时')), 35000);
-      function finish(error, result) {
-        if (finished) return;
-        finished = true;
+      function finish(err, value) {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        window.removeEventListener('message', onMessage);
-        if (error) reject(error); else resolve(result);
+        window.removeEventListener('message', receive);
+        if (err) reject(err); else resolve(value);
       }
-      function onMessage(event) {
+      function receive(event) {
         if (event.source !== window || event.origin !== location.origin) return;
         const data = event.data;
         if (data?.channel === CHANNEL && data.type === 'RESPONSE' && data.id === id)
           finish(null, data.payload);
       }
-      window.addEventListener('message', onMessage);
+      window.addEventListener('message', receive);
       window.postMessage({ channel: CHANNEL, type: 'REQUEST', id, expectedCount }, location.origin);
     });
   }
-  async function fetchList() {
+  async function fetchCompleteList() {
     const expectedCount = readDisplayedTotal();
-    const complete = result => result?.ok && Array.isArray(result.items) &&
-      result.count === result.items.length &&
-      (expectedCount === null || expectedCount === result.count);
-    let primaryError = '扩展后台读取失败';
+    const valid = data => data?.ok && Array.isArray(data.items) && data.count === data.items.length &&
+      (expectedCount === null || expectedCount === data.count);
+    let firstError = '后台请求失败';
     try {
-      const result = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH', expectedCount });
-      if (complete(result)) return result;
-      primaryError = result?.error || '后台接口返回数量与页面总数不符';
-    } catch (error) {
-      primaryError = error instanceof Error ? error.message : primaryError;
-    }
+      const data = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH', expectedCount });
+      if (valid(data)) return data;
+      firstError = data?.error || '后台返回数量不完整';
+    } catch (error) { firstError = String(error?.message || error); }
     try {
-      const result = await fetchFromPage(expectedCount);
-      if (complete(result)) return result;
-      throw new Error(result?.error || '页面接口返回数量与页面总数不符');
+      const data = await fetchFromPage(expectedCount);
+      if (valid(data)) return data;
+      throw new Error(data?.error || '页面请求返回数量不完整');
     } catch (error) {
-      throw new Error(primaryError + '；备用方式：' + (error instanceof Error ? error.message : '失败'));
+      throw new Error(firstError + '；备用接口：' + (error?.message || error));
     }
   }
-  async function loadData(force = false) {
-    if (pending) return pending;
-    if (!force && videos !== null) return;
-    fetchError = null;
-    setWarning();
+  function findScroller(node) {
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (/(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 40)
+        return parent;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+  async function materializeNativeCards(token) {
+    let scanned = scanCards();
+    if (scanned?.layout && scanned.count === total) return;
+    // Trigger Bilibili's own lazy-loading. Do not create or replace native cards.
+    const scroller = findScroller(nativeGrid);
+    const startTop = scroller.scrollTop;
+    const initialBehavior = scroller.style.getPropertyValue('scroll-behavior');
+    const initialPriority = scroller.style.getPropertyPriority('scroll-behavior');
+    let interrupted = false;
+    const onUserInput = event => { if (event.isTrusted) interrupted = true; };
+    window.addEventListener('wheel', onUserInput, { passive: true });
+    window.addEventListener('touchstart', onUserInput, { passive: true });
+    scroller.style.setProperty('scroll-behavior', 'auto', 'important');
+    try {
+      let unchangedAtEnd = 0;
+      let lastCount = -1;
+      for (let i = 0; i < 150; i++) {
+        if (token !== operation || mode === 'default') return;
+        if (interrupted) throw new Error('用户中断了自动加载，请点击刷新重试');
+        scanned = scanCards();
+        if (scanned?.layout && scanned.count === total) return;
+        if (scanned && scanned.count > total)
+          throw new Error('原生页面卡片数超过列表总数，请关闭筛选后重试');
+        setStatus('加载 B站原生卡片 ' + (scanned?.count || 0) + '/' + total + '…');
+        const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+        const nextTop = Math.min(maxTop, scroller.scrollTop + Math.max(400, Math.floor(scroller.clientHeight * 0.8)));
+        if (nextTop > scroller.scrollTop) scroller.scrollTop = nextTop;
+        await sleep(nextTop >= maxTop ? 300 : 120);
+        const after = scanCards()?.count || 0;
+        if (scroller.scrollTop >= Math.max(0, scroller.scrollHeight - scroller.clientHeight - 3)) {
+          unchangedAtEnd = after === lastCount ? unchangedAtEnd + 1 : 0;
+          if (unchangedAtEnd >= 12) break;
+        } else unchangedAtEnd = 0;
+        lastCount = after;
+      }
+    } finally {
+      if (initialBehavior) scroller.style.setProperty('scroll-behavior', initialBehavior, initialPriority);
+      else scroller.style.removeProperty('scroll-behavior');
+      if (!interrupted) scroller.scrollTop = startTop;
+      window.removeEventListener('wheel', onUserInput);
+      window.removeEventListener('touchstart', onUserInput);
+    }
+  }
+  async function runSort() {
+    if (pending || !nativeGrid || mode === 'default' || state !== 'idle') return;
+    const token = ++operation;
+    state = 'loading';
     refresh.disabled = true;
-    setStatus('读取完整列表中…');
     pending = (async () => {
       try {
-        const result = await fetchList();
-        videos = result.items;
-        count = result.count;
-      } catch (error) {
-        fetchError = error instanceof Error ? error.message : '未知错误';
-        if (force) {
-          // Do not continue to display a stale "complete" view after refresh failed.
-          videos = null;
-          renderedVideos = null;
+        if (!videos) {
+          setStatus('正在获取完整视频数据…');
+          const result = await fetchCompleteList();
+          if (token !== operation || mode === 'default') return;
+          videos = result.items;
+          total = result.count;
         }
-      } finally {
-        pending = null;
-        refresh.disabled = false;
-        syncView();
+        const shown = readDisplayedTotal();
+        if (shown !== null && shown !== total)
+          throw new Error('列表总数发生变化，请点击刷新重新读取');
+        if (!applyOrder()) await materializeNativeCards(token);
+        if (token !== operation || mode === 'default') return;
+        if (!applyOrder()) {
+          const count = scanCards()?.count || 0;
+          throw new Error('原生卡片未能全部加载或匹配：' + count + '/' + total + '；无法安全全量排序');
+        }
+        state = 'ready';
+      } catch (error) {
+        if (token !== operation || mode === 'default') return;
+        restoreNativeOrders();
+        state = 'failed';
+        setStatus(error?.message || '原生列表全量排序失败', true);
       }
-    })();
+    })().finally(() => {
+      pending = null;
+      refresh.disabled = false;
+      scheduleSync();
+    });
     return pending;
   }
   function sync() {
-    syncView();
-    if (mode !== 'default' && !videos && !pending && !fetchError && nativeGrid)
-      void loadData();
+    if (!mount()) return;
+    if (mode === 'default') {
+      restoreNativeOrders();
+      setStatus('B站默认顺序');
+      return;
+    }
+    if (state === 'ready') {
+      if (!applyOrder()) {
+        restoreNativeOrders();
+        state = 'failed';
+        setStatus('原生卡片或列表数据发生变化，请点击刷新重新排序', true);
+      }
+    } else if (state === 'idle' && !pending) void runSort();
   }
   function scheduleSync() {
     if (scheduled) return;
     scheduled = true;
-    setTimeout(() => {
-      scheduled = false;
-      sync();
-    }, 150);
+    setTimeout(() => { scheduled = false; sync(); }, 150);
   }
-  select.addEventListener('change', () => {
-    mode = isSortMode(select.value) ? select.value : 'default';
+  function changeMode(next) {
+    mode = isSortMode(next) ? next : 'default';
+    operation++;
+    state = 'idle';
+    restoreNativeOrders();
+    select.value = mode;
     chrome.storage.local.set({ [STORAGE_KEY]: mode }).catch(() => {});
-    sync();
+    scheduleSync();
+  }
+  select.addEventListener('change', () => changeMode(select.value));
+  refresh.addEventListener('click', () => {
+    operation++;
+    state = 'idle';
+    videos = null;
+    total = 0;
+    restoreNativeOrders();
+    scheduleSync();
   });
-  refresh.addEventListener('click', () => { void loadData(true); });
   chrome.runtime.onMessage.addListener(message => {
-    if (message?.type === 'WL_SORTER_OPEN') {
-      sync();
-      if (root.isConnected) select.focus();
-    }
+    if (message?.type === 'WL_SORTER_OPEN') { scheduleSync(); select.focus(); }
   });
   window.addEventListener('hashchange', scheduleSync);
   window.addEventListener('popstate', scheduleSync);
   new MutationObserver(records => {
     if (records.some(record => !root.contains(record.target) &&
-        !fullGrid.contains(record.target) && !warning.contains(record.target) &&
-        [...record.addedNodes, ...record.removedNodes].some(node =>
-          node !== root && node !== fullGrid && node !== warning)))
-      scheduleSync();
-  }).observe(document.documentElement, { childList: true, subtree: true });
+      (record.type === 'attributes' ||
+        [...record.addedNodes, ...record.removedNodes].some(node => node !== root)))) scheduleSync();
+  }).observe(document.documentElement, {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-bvid']
+  });
   chrome.storage.local.get(STORAGE_KEY).then(saved => {
     if (isSortMode(saved?.[STORAGE_KEY])) mode = saved[STORAGE_KEY];
     select.value = mode;
-    sync();
-  }).catch(() => sync());
+    scheduleSync();
+  }).catch(scheduleSync);
   scheduleSync();
 })();
