@@ -265,7 +265,8 @@
   window.addEventListener('popstate', scheduleSync);
   new MutationObserver(records => {
     if (records.some(record => !root.contains(record.target) &&
-      ![...record.addedNodes].every(node => node === root)))
+      (record.type === 'attributes' ||
+       [...record.addedNodes, ...record.removedNodes].some(node => node !== root))))
       scheduleSync();
   }).observe(document.documentElement, {
     childList: true,
