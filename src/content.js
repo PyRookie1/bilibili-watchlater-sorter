@@ -112,12 +112,12 @@
   function sortRenderedNativeCards() {
     // CSS fallback only when the complete native list is already rendered.
     // Never scroll the page or turn an incomplete DOM into a fake full sort.
-    if (reactiveApplied || !videos || mode === 'default') return;
+    if (reactiveApplied || !videos || mode === 'default') return false;
     const entries = scanNativeEntries();
-    if (!entries || entries.length !== videos.length) return;
+    if (!entries || entries.length !== videos.length) return false;
     const ranks = ranksFromVideos(videos, mode, sortVideos);
     const matched = matchNativeEntries(entries, ranks, videos.length);
-    if (!matched.complete) return;
+    if (!matched.complete) return false;
     const current = new Set(entries.map(x => x.host));
     for (const [node, prior] of originalOrders) {
       if (current.has(node)) continue;
@@ -132,6 +132,7 @@
       });
       item.host.style.setProperty('order', String(item.rank), 'important');
     }
+    return true;
   }
   async function getMetadata() {
     if (videos) return;
@@ -177,7 +178,18 @@
     if (payload?.channel !== CHANNEL || payload.type !== 'MODE_RESULT' ||
         payload.id !== String(requestId)) return;
     reactiveApplied = payload.applied === true;
-    if (reactiveApplied) resetInlineOrders();
+    if (reactiveApplied) {
+      resetInlineOrders();
+    } else {
+      // When Bilibili does not expose its reactive full-list state, let the
+      // document_start interceptor sort the original API response on one reload.
+      // A reload is preferable to scrolling through the user's page.
+      const changedId = payload.id;
+      setTimeout(() => {
+        if (changedId !== String(requestId) || reactiveApplied || !isListPage()) return;
+        if (mode === 'default' || !sortRenderedNativeCards()) location.reload();
+      }, 120);
+    }
     schedule();
   });
   window.addEventListener('hashchange', schedule);
