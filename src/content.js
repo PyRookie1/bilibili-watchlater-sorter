@@ -50,6 +50,65 @@
   status.setAttribute('aria-live', 'polite');
   root.append(label, refresh, status);
 
+  // This is a temporary opaque loading curtain, not a replacement video view.
+  // Bilibili must keep its native cards visible to IntersectionObserver while we
+  // trigger lazy loading, so we mask viewport movement until sorting is finished.
+  const preparation = document.createElement('div');
+  preparation.id = 'wl-sorter-preparing';
+  preparation.hidden = true;
+  preparation.setAttribute('role', 'dialog');
+  preparation.setAttribute('aria-modal', 'true');
+  preparation.setAttribute('aria-labelledby', 'wl-sorter-progress-title');
+  const preparationPanel = document.createElement('div');
+  preparationPanel.className = 'wl-sorter-preparing-panel';
+  const preparationTitle = document.createElement('strong');
+  preparationTitle.id = 'wl-sorter-progress-title';
+  preparationTitle.textContent = '正在准备原生视频列表';
+  const preparationText = document.createElement('p');
+  preparationText.className = 'wl-sorter-preparing-text';
+  preparationText.setAttribute('role', 'status');
+  preparationText.setAttribute('aria-live', 'polite');
+  preparationText.textContent = '等待原生卡片加载…';
+  const preparationCancel = document.createElement('button');
+  preparationCancel.type = 'button';
+  preparationCancel.textContent = '取消';
+  preparationPanel.append(preparationTitle, preparationText, preparationCancel);
+  preparation.append(preparationPanel);
+  let previousFocus = null;
+
+  function showPreparation() {
+    previousFocus = document.activeElement;
+    document.documentElement.append(preparation);
+    preparation.hidden = false;
+    preparationCancel.focus({ preventScroll: true });
+  }
+  function updatePreparation(current, expected) {
+    preparationText.textContent = '正在加载原生卡片 ' + current + ' / ' + expected +
+      '。加载完成后会直接显示排序结果。';
+  }
+  function hidePreparation() {
+    if (preparation.hidden) return;
+    preparation.hidden = true;
+    preparation.remove();
+    if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+    previousFocus = null;
+  }
+  preparationCancel.addEventListener('click', () => {
+    if (state !== 'loading') return;
+    operation++;
+    state = 'failed';
+    setStatus('已取消自动加载，请点击刷新重试', true);
+  });
+  preparation.addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      preparationCancel.click();
+    } else if (event.key === 'Tab') {
+      event.preventDefault();
+      preparationCancel.focus({ preventScroll: true });
+    }
+  });
+
   function setStatus(text, isError = false) {
     status.textContent = text;
     status.title = text;
@@ -240,9 +299,9 @@
         if (scanned?.layout && scanned.count === total) return;
         if (scanned && scanned.count > total)
           throw new Error('原生页面卡片数超过列表总数，请关闭筛选后重试');
-        setStatus('加载 B站原生卡片 ' + (scanned?.count || 0) + '/' + total + '…');
+        updatePreparation(scanned?.count || 0, total);
         const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        const nextTop = Math.min(maxTop, scroller.scrollTop + Math.max(400, Math.floor(scroller.clientHeight * 0.8)));
+        const nextTop = Math.min(maxTop, scroller.scrollTop + Math.max(700, Math.floor(scroller.clientHeight * 1.5)));
         if (nextTop > scroller.scrollTop) scroller.scrollTop = nextTop;
         await sleep(nextTop >= maxTop ? 300 : 120);
         const after = scanCards()?.count || 0;
@@ -255,7 +314,8 @@
     } finally {
       if (initialBehavior) scroller.style.setProperty('scroll-behavior', initialBehavior, initialPriority);
       else scroller.style.removeProperty('scroll-behavior');
-      if (!interrupted) scroller.scrollTop = startTop;
+      // Never expose the intermediate scroll position, including cancellations.
+      scroller.scrollTop = startTop;
       window.removeEventListener('wheel', onUserInput);
       window.removeEventListener('touchstart', onUserInput);
     }
@@ -277,13 +337,22 @@
         const shown = readDisplayedTotal();
         if (shown !== null && shown !== total)
           throw new Error('列表总数发生变化，请点击刷新重新读取');
-        if (!applyOrder()) await materializeNativeCards(token);
+        if (!applyOrder()) {
+          // Mount before changing scrollTop. Native cards remain live behind the
+          // curtain so Bilibili can create their actual components.
+          showPreparation();
+          await materializeNativeCards(token);
+        }
         if (token !== operation || mode === 'default') return;
         if (!applyOrder()) {
           const count = scanCards()?.count || 0;
           throw new Error('原生卡片未能全部加载或匹配：' + count + '/' + total + '；无法安全全量排序');
         }
         state = 'ready';
+        // Paint the final native CSS order before revealing the viewport.
+        if (!preparation.hidden) {
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }
       } catch (error) {
         if (token !== operation || mode === 'default') return;
         restoreNativeOrders();
@@ -291,6 +360,7 @@
         setStatus(error?.message || '原生列表全量排序失败', true);
       }
     })().finally(() => {
+      hidePreparation();
       pending = null;
       refresh.disabled = false;
       scheduleSync();
@@ -342,8 +412,9 @@
   window.addEventListener('popstate', scheduleSync);
   new MutationObserver(records => {
     if (records.some(record => !root.contains(record.target) &&
+      !preparation.contains(record.target) &&
       (record.type === 'attributes' ||
-        [...record.addedNodes, ...record.removedNodes].some(node => node !== root)))) scheduleSync();
+        [...record.addedNodes, ...record.removedNodes].some(node => node !== root && node !== preparation)))) scheduleSync();
   }).observe(document.documentElement, {
     childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'data-bvid']
   });
