@@ -139,3 +139,30 @@ test('XHR response interception preserves native response shape and API write re
   write.readyState = 4;
   assert.equal(JSON.parse(write.responseText).data.list[0].aid, 1);
 });
+
+test('sorting works even when Bilibili never calls an intercepted list endpoint', () => {
+  const { sandbox, events, state, calls } = harness('default');
+  // Native Vue state exists, but its list came from another internal API.
+  const full = list();
+  const vue = { setupState: { state: { records: full } }, parent: null };
+  state.grid = { __vueParentComponent: vue, parentElement: null };
+  events.get('message')({
+    source: vm.runInNewContext('globalThis', sandbox), origin: 'https://www.bilibili.com',
+    data: { channel: 'wl-sorter-bilibili-v1', type: 'SET_MODE',
+      id: 'page-independent', mode: 'duration-asc', items: list(), count: 423 }
+  });
+  assert.equal(full[0].aid, 423);
+  assert.equal(calls.at(-1).applied, true);
+});
+
+test('snapshot request returns full original list when intercepted', async () => {
+  const { sandbox, events, calls } = harness();
+  await sandbox.fetch('https://api.bilibili.com/x/v2/history/toview');
+  events.get('message')({
+    source: vm.runInNewContext('globalThis', sandbox), origin: 'https://www.bilibili.com',
+    data: { channel: 'wl-sorter-bilibili-v1', type: 'GET_SNAPSHOT', id: 'snapshot' }
+  });
+  assert.equal(calls.at(-1).type, 'SNAPSHOT_RESULT');
+  assert.equal(calls.at(-1).items.length, 423);
+  assert.equal(calls.at(-1).items[0].aid, 1);
+});
