@@ -44,7 +44,7 @@ test('content safeguards complete counts, original page restoration and error di
   assert.match(script, /mode === 'default'/);
   assert.match(script, /image\.loading = 'lazy'/);
   assert.match(script, /link\.rel = 'noopener noreferrer'/);
-  assert.match(script, /\\/watchlater/);
+  assert.match(script, /watchlater/);
 });
 
 test('CSS displays full grid with five columns and restores native when hidden', () => {
