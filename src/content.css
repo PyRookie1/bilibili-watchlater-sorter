@@ -1,0 +1,32 @@
+#wl-sorter-root {font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;color:#222}
+#wl-sorter-root *{box-sizing:border-box}
+#wl-sorter-root .wl-sorter-launcher{position:fixed;right:24px;bottom:24px;z-index:2147483640;background:#00aeec;color:white;border:0;border-radius:25px;padding:12px 18px;cursor:pointer;box-shadow:0 5px 18px #0003;font-weight:600}
+#wl-sorter-root .wl-sorter-overlay[hidden]{display:none!important}
+#wl-sorter-root .wl-sorter-overlay{position:fixed;inset:0;z-index:2147483645;display:grid;place-items:center;padding:20px}
+#wl-sorter-root .wl-sorter-backdrop{position:absolute;inset:0;background:#0009}
+#wl-sorter-root .wl-sorter-dialog{position:relative;display:flex;flex-direction:column;width:min(960px,100%);height:min(800px,92dvh);background:#fff;color:#222;border-radius:16px;overflow:hidden;box-shadow:0 20px 70px #0005}
+#wl-sorter-root .wl-sorter-head{display:flex;justify-content:space-between;padding:22px 28px 14px;border-bottom:1px solid #eee;gap:18px}
+#wl-sorter-root .wl-sorter-head h2{font-size:21px;margin:0;font-weight:700}
+#wl-sorter-root .wl-sorter-head p{color:#777;font-size:13px;margin:7px 0 0}
+#wl-sorter-root .wl-sorter-close{border:0;border-radius:50%;width:32px;height:32px;background:#f5f5f5;font-size:25px;cursor:pointer}
+#wl-sorter-root .wl-sorter-tools{display:flex;align-items:end;flex-wrap:wrap;gap:14px;padding:15px 28px}
+#wl-sorter-root .wl-sorter-tools label{display:flex;flex-direction:column;gap:6px;font-weight:600;color:#666;font-size:12px}
+#wl-sorter-root .wl-sorter-select{min-width:250px;max-width:100%;height:38px;background:white;color:#222;border:1px solid #d5d5d5;border-radius:7px;padding:0 9px}
+#wl-sorter-root .wl-sorter-refresh{height:38px;padding:0 16px;border:1px solid #00aeec;background:white;border-radius:7px;color:#009bd4;cursor:pointer}
+#wl-sorter-root .wl-sorter-refresh:disabled{opacity:.5;cursor:progress}
+#wl-sorter-root .wl-sorter-summary{padding:6px 28px 12px;min-height:34px;color:#666;font-size:13px}
+#wl-sorter-root .wl-sorter-summary[data-kind=error]{color:#b62432}
+#wl-sorter-root .wl-sorter-list{flex:1;min-height:0;overflow-y:auto;padding:0 28px 14px;overscroll-behavior:contain}
+#wl-sorter-root .wl-sorter-card{display:flex;gap:15px;padding:14px 0;border-top:1px solid #f0f0f0}
+#wl-sorter-root .wl-sorter-cover{position:relative;flex:0 0 160px;width:160px;aspect-ratio:16/10;border-radius:8px;overflow:hidden;background:#f2f2f2;display:grid;place-items:center}
+#wl-sorter-root .wl-sorter-cover img{width:100%;height:100%;object-fit:cover}
+#wl-sorter-root .wl-sorter-duration{position:absolute;right:6px;bottom:6px;background:#000a;color:#fff;font-size:11px;border-radius:3px;padding:1px 5px}
+#wl-sorter-root .wl-sorter-placeholder{color:#999;font-size:12px}
+#wl-sorter-root .wl-sorter-info{min-width:0;flex:1}
+#wl-sorter-root .wl-sorter-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:15px;line-height:1.5;color:#222;text-decoration:none;font-weight:600;overflow-wrap:anywhere}
+#wl-sorter-root a.wl-sorter-title:hover{color:#00aeec}
+#wl-sorter-root .wl-sorter-meta{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:13px;color:#888;font-size:12px}
+#wl-sorter-root .wl-sorter-empty{text-align:center;color:#999;margin:42px auto}
+#wl-sorter-root .wl-sorter-footer{border-top:1px solid #f0f0f0;padding:11px 28px;color:#888;font-size:12px;background:#fafafa}
+#wl-sorter-root button:focus-visible,#wl-sorter-root select:focus-visible,#wl-sorter-root a:focus-visible{outline:2px solid #00aeec;outline-offset:2px}
+@media(max-width:600px){#wl-sorter-root .wl-sorter-overlay{padding:9px}#wl-sorter-root .wl-sorter-dialog{height:95dvh}#wl-sorter-root .wl-sorter-head,#wl-sorter-root .wl-sorter-tools{padding:14px 16px}#wl-sorter-root .wl-sorter-summary,#wl-sorter-root .wl-sorter-list,#wl-sorter-root .wl-sorter-footer{padding-left:16px;padding-right:16px}#wl-sorter-root .wl-sorter-cover{flex-basis:112px;width:112px}#wl-sorter-root .wl-sorter-card{gap:10px}#wl-sorter-root .wl-sorter-launcher{right:12px;bottom:16px}}
