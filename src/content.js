@@ -79,6 +79,18 @@
       if (bounds.top > gridBounds.top || bounds.left < gridBounds.left) continue;
       return element;
     }
+    // Some Bilibili versions render the native sort label as a plain span.
+    // Find the visible label above the video grid, then insert beside its control.
+    for (const label of document.querySelectorAll('span')) {
+      if (root.contains(label)) continue;
+      const text = label.textContent?.replace(/[\\s▼▽⌄▾∨]/g, '');
+      if (text !== '最近添加' && text !== '最早添加') continue;
+      const rect = label.getBoundingClientRect();
+      const gridRect = gridNode.getBoundingClientRect();
+      if (!rect.width || !rect.height || rect.top > gridRect.top ||
+          rect.left < gridRect.left) continue;
+      return label.closest('button, [role="button"], [class*="dropdown"], [class*="sort"], [class*="select"]') || label;
+    }
     return null;
   }
   function mount() {
