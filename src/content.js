@@ -1,90 +1,189 @@
 (() => {
   'use strict';
   if (document.getElementById('wl-sorter-root')) return;
-  const {sortVideos, isSortMode, formatDuration, formatPublished, videoLink, coverLink} = globalThis.WatchLaterSort;
-  const CHANNEL = 'wl-sorter-bilibili-v1', STORAGE_KEY = 'wl-sorter-mode';
-  let mode = 'default', videos = null, count = 0, busy = false, returnFocus;
+  const { sortVideos, isSortMode } = globalThis.WatchLaterSort;
+  const { rankMap, displayOrders } = globalThis.WatchLaterNativeSort;
+  const CHANNEL = 'wl-sorter-bilibili-v1';
+  const STORAGE_KEY = 'wl-sorter-mode';
+  const OPTIONS = [
+    ['default', 'B站默认顺序'],
+    ['published-desc', '发布时间：最新优先'],
+    ['published-asc', '发布时间：最早优先'],
+    ['duration-asc', '总时长：短到长'],
+    ['duration-desc', '总时长：长到短']
+  ];
+
+  let mode = 'default';
+  let videos = null;
+  let count = 0;
+  let pending = null;
+  let grid = null;
+  let scheduled = false;
+  let lastNodes = new Set();
+  const originalOrders = new WeakMap();
+
   const root = document.createElement('div');
   root.id = 'wl-sorter-root';
-  root.innerHTML = `
-    <button type="button" class="wl-sorter-launcher">稍后再看排序</button>
-    <div class="wl-sorter-overlay" hidden>
-      <div class="wl-sorter-backdrop"></div>
-      <section class="wl-sorter-dialog" role="dialog" aria-modal="true" aria-labelledby="wl-sorter-title">
-        <header class="wl-sorter-head">
-          <div><h2 id="wl-sorter-title">稍后再看 · 排序</h2><p>按发布时间或视频总时长浏览列表</p></div>
-          <button type="button" class="wl-sorter-close" aria-label="关闭排序面板">×</button>
-        </header>
-        <div class="wl-sorter-tools">
-          <label>排序方式 <select class="wl-sorter-select">
-            <option value="default">默认顺序</option>
-            <option value="published-desc">发布时间：最新优先</option>
-            <option value="published-asc">发布时间：最早优先</option>
-            <option value="duration-asc">总时长：短到长</option>
-            <option value="duration-desc">总时长：长到短</option>
-          </select></label>
-          <button type="button" class="wl-sorter-refresh">刷新列表</button>
-        </div>
-        <div class="wl-sorter-summary" role="status" aria-live="polite"></div>
-        <div class="wl-sorter-list" aria-label="排序后的视频列表"></div>
-        <footer class="wl-sorter-footer">仅调整本面板中的显示顺序，不改变服务器列表或自动连播顺序。</footer>
-      </section>
-    </div>`;
-  const $ = s => root.querySelector(s);
-  const launch = $('.wl-sorter-launcher'), overlay = $('.wl-sorter-overlay');
-  const select = $('.wl-sorter-select'), list = $('.wl-sorter-list'), summary = $('.wl-sorter-summary');
-  const refresh = $('.wl-sorter-refresh'), closeButton = $('.wl-sorter-close');
-  function makeEl(tag, cls, text) {
-    const el = document.createElement(tag);
-    if (cls) el.className = cls;
-    if (text !== undefined) el.textContent = String(text);
-    return el;
+  root.className = 'wl-sorter-toolbar';
+  root.setAttribute('aria-label', '扩展视频排序工具');
+
+  const label = document.createElement('label');
+  label.className = 'wl-sorter-label';
+  label.textContent = '扩展排序';
+  const select = document.createElement('select');
+  select.className = 'wl-sorter-select';
+  select.setAttribute('aria-label', '按发布时间或视频时长排序');
+  for (const [value, text] of OPTIONS) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = text;
+    select.append(option);
   }
-  function setSummary(message, kind = 'normal') {
-    summary.textContent = message; summary.dataset.kind = kind;
+  label.append(select);
+
+  const refresh = document.createElement('button');
+  refresh.type = 'button';
+  refresh.className = 'wl-sorter-refresh';
+  refresh.textContent = '↻';
+  refresh.title = '刷新排序数据';
+  refresh.setAttribute('aria-label', '刷新排序数据');
+
+  const status = document.createElement('span');
+  status.className = 'wl-sorter-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  root.append(label, refresh, status);
+
+  function setStatus(text, error = false) {
+    if (status.textContent !== text) status.textContent = text;
+    status.title = text;
+    status.dataset.error = error ? 'true' : 'false';
   }
-  function renderCard(video) {
-    const card = makeEl('article', 'wl-sorter-card');
-    const cover = makeEl('div', 'wl-sorter-cover');
-    const image = coverLink(video.pic);
-    if (image) {
-      const img = document.createElement('img'); img.src = image; img.alt = '';
-      img.loading = 'lazy'; img.decoding = 'async'; cover.append(img);
-    } else cover.append(makeEl('span', 'wl-sorter-placeholder', '暂无封面'));
-    cover.append(makeEl('span', 'wl-sorter-duration', formatDuration(video.duration)));
-    const info = makeEl('div', 'wl-sorter-info'), url = videoLink(video);
-    const titleText = typeof video.title === 'string' && video.title.trim() ? video.title : '视频不可用或标题缺失';
-    const title = makeEl(url ? 'a' : 'span', 'wl-sorter-title', titleText);
-    if (url) { title.href = url; title.title = titleText; }
-    const meta = makeEl('div', 'wl-sorter-meta');
-    meta.append(makeEl('span', '', `发布：${formatPublished(video.pubdate)}`));
-    meta.append(makeEl('span', '', `总时长：${formatDuration(video.duration)}`));
-    if (typeof video.owner === 'string' && video.owner.trim())
-      meta.append(makeEl('span', '', `UP：${video.owner}`));
-    info.append(title, meta); card.append(cover, info); return card;
+  function isListPage() {
+    if (!/^\/(?:watchlater(?:\/list)?|list\/watchlater)\/?$/.test(location.pathname)) return false;
+    return !location.hash || /^#\/list(?:[/?#]|$)/.test(location.hash);
   }
-  function render() {
-    list.replaceChildren();
-    if (!Array.isArray(videos)) return;
-    const sorted = sortVideos(videos, mode);
-    if (!sorted.length) list.append(makeEl('p', 'wl-sorter-empty', '稍后再看列表为空。'));
-    else {
-      const fragment = document.createDocumentFragment();
-      for (const video of sorted) fragment.append(renderCard(video));
-      list.append(fragment);
+  function findGrid() {
+    return document.querySelector('.watchlater-list-container');
+  }
+  function findNativeSort(gridNode) {
+    // Text-based fallback because Bilibili changes CSS class names.
+    const candidates = [...document.querySelectorAll('button, [role="button"], [class*="sort"]')];
+    for (const element of candidates) {
+      if (root.contains(element) || element.closest('#wl-sorter-root')) continue;
+      const text = element.textContent?.replace(/[\s▼▽⌄▾∨]/g, '');
+      if (text !== '最近添加' && text !== '最早添加') continue;
+      const bounds = element.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) continue;
+      const gridBounds = gridNode.getBoundingClientRect();
+      if (bounds.top > gridBounds.top || bounds.left < gridBounds.left) continue;
+      return element;
     }
-    const warning = count !== videos.length ? `（接口声明 ${count} 项，实际返回 ${videos.length} 项，可能不完整）` : '';
-    setSummary(`已加载 ${videos.length} 个视频 ${warning}`.trim());
+    return null;
+  }
+  function mount() {
+    const currentGrid = isListPage() ? findGrid() : null;
+    if (!currentGrid) {
+      if (root.isConnected) root.remove();
+      if (grid) restoreOrders();
+      grid = null;
+      return false;
+    }
+    if (grid !== currentGrid) {
+      restoreOrders();
+      grid = currentGrid;
+    }
+    const nativeSort = findNativeSort(grid);
+    const host = nativeSort?.parentElement || grid.parentElement;
+    if (!host) return false;
+    root.dataset.placement = nativeSort ? 'inline' : 'fallback';
+    if (nativeSort) {
+      if (root.parentNode !== host || root.nextElementSibling !== nativeSort)
+        host.insertBefore(root, nativeSort);
+    } else if (root.parentNode !== host || root.nextElementSibling !== grid) {
+      host.insertBefore(root, grid);
+    }
+    return true;
+  }
+  function restoreOrder(node) {
+    if (!originalOrders.has(node)) return;
+    const prior = originalOrders.get(node);
+    if (prior.value) node.style.setProperty('order', prior.value, prior.priority);
+    else node.style.removeProperty('order');
+    originalOrders.delete(node);
+  }
+  function restoreOrders() {
+    for (const node of lastNodes) restoreOrder(node);
+    lastNodes = new Set();
+  }
+  function cardsInGrid(container) {
+    return [...container.children].map(host => ({
+      host,
+      card: host.matches('.video-card') ? host : host.querySelector('.video-card')
+    })).filter(entry => entry.card);
+  }
+  function applySort() {
+    if (!grid || !grid.isConnected) return;
+    const entries = cardsInGrid(grid);
+    if (mode === 'default') {
+      restoreOrders();
+      setStatus('使用B站原有顺序');
+      return;
+    }
+    if (!entries.length) {
+      setStatus('等待视频卡片加载…');
+      return;
+    }
+    const display = getComputedStyle(grid).display;
+    if (!['grid', 'inline-grid', 'flex', 'inline-flex'].includes(display)) {
+      restoreOrders();
+      setStatus('列表布局不是网格或弹性布局，无法安全排序', true);
+      return;
+    }
+    if (!videos) {
+      setStatus('正在读取视频元数据…');
+      return;
+    }
+    const ranks = rankMap(videos, mode, sortVideos);
+    const positions = displayOrders(entries.map(entry => entry.card), ranks, videos.length);
+    const matched = positions.filter(item => item.matched).length;
+    if (!matched) {
+      restoreOrders();
+      setStatus('卡片未匹配到BV号，未修改列表顺序', true);
+      return;
+    }
+    const newest = new Set();
+    positions.forEach((item, index) => {
+      const node = entries[index].host;
+      if (!originalOrders.has(node)) {
+        originalOrders.set(node, {
+          value: node.style.getPropertyValue('order'),
+          priority: node.style.getPropertyPriority('order')
+        });
+      }
+      node.style.setProperty('order', String(item.order));
+      newest.add(node);
+    });
+    for (const node of lastNodes) if (!newest.has(node)) restoreOrder(node);
+    lastNodes = newest;
+    if (count && entries.length < count) {
+      setStatus('已排序已加载卡片 ' + matched + '/' + entries.length + '（列表共 ' + count + ' 项）');
+    } else {
+      setStatus('已排序 ' + matched + '/' + entries.length + ' 张卡片');
+    }
   }
   function fetchFromPage() {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
-      let finished = false;
       const timer = setTimeout(() => finish(new Error('页面请求超时')), 17000);
+      let complete = false;
       function finish(error, result) {
-        if (finished) return;
-        finished = true; clearTimeout(timer); window.removeEventListener('message', onMessage);
-        if (error) reject(error); else resolve(result);
+        if (complete) return;
+        complete = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        if (error) reject(error);
+        else resolve(result);
       }
       function onMessage(event) {
         if (event.source !== window || event.origin !== location.origin) return;
@@ -93,74 +192,91 @@
           finish(null, data.payload);
       }
       window.addEventListener('message', onMessage);
-      window.postMessage({channel: CHANNEL, type: 'REQUEST', id}, location.origin);
+      window.postMessage({ channel: CHANNEL, type: 'REQUEST', id }, location.origin);
     });
   }
   async function fetchList() {
-    let firstError = '扩展后台请求失败';
+    let firstError = '扩展后台接口请求失败';
     try {
-      const result = await chrome.runtime.sendMessage({type: 'WL_SORTER_FETCH'});
-      if (result?.ok && Array.isArray(result.items)) return result;
-      firstError = result?.error || firstError;
-    } catch (error) { firstError = error instanceof Error ? error.message : firstError; }
-    try {
-      const result = await fetchFromPage();
-      if (result?.ok && Array.isArray(result.items)) return result;
-      throw new Error(result?.error || '页面上下文读取失败');
+      const response = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH' });
+      if (response?.ok && Array.isArray(response.items)) return response;
+      firstError = response?.error || firstError;
     } catch (error) {
-      throw new Error(`${firstError}；页面请求：${error instanceof Error ? error.message : '未知错误'}`);
+      firstError = error instanceof Error ? error.message : firstError;
+    }
+    try {
+      const response = await fetchFromPage();
+      if (response?.ok && Array.isArray(response.items)) return response;
+      throw new Error(response?.error || '读取失败');
+    } catch (error) {
+      throw new Error(firstError + '；页面请求：' +
+        (error instanceof Error ? error.message : '未知错误'));
     }
   }
-  async function reload() {
-    if (busy) return;
-    busy = true; refresh.disabled = true; refresh.textContent = '加载中…';
-    setSummary('正在读取稍后再看列表…');
-    try {
-      const result = await fetchList();
-      videos = result.items;
-      count = Number.isFinite(result.count) ? result.count : videos.length;
-      render();
-    } catch (error) {
-      setSummary(`加载失败：${error instanceof Error ? error.message : '未知错误'}。请确认已登录 B 站。`, 'error');
-      if (!videos) list.replaceChildren(makeEl('p', 'wl-sorter-empty', '无法读取列表，请检查登录状态、网络连接及扩展权限。'));
-    } finally {
-      busy = false; refresh.disabled = false; refresh.textContent = '刷新列表';
-    }
+  async function loadData(force = false) {
+    if (!force && videos !== null) return;
+    if (pending) return pending;
+    refresh.disabled = true;
+    setStatus('正在读取视频元数据…');
+    pending = (async () => {
+      try {
+        const result = await fetchList();
+        videos = result.items;
+        count = Number.isFinite(result.count) ? result.count : videos.length;
+      } catch (error) {
+        setStatus('读取失败：' + (error instanceof Error ? error.message : '未知错误'), true);
+        if (videos === null) restoreOrders();
+        return;
+      } finally {
+        refresh.disabled = false;
+        pending = null;
+      }
+      applySort();
+    })();
+    return pending;
   }
-  function open() {
-    if (!overlay.hidden) return;
-    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : launch;
-    overlay.hidden = false; select.value = mode; closeButton.focus();
-    if (videos === null) void reload(); else render();
+  function sync() {
+    if (!mount()) return;
+    applySort();
+    if (mode !== 'default' && videos === null && !pending) void loadData();
   }
-  function close() {
-    if (overlay.hidden) return;
-    overlay.hidden = true;
-    if (returnFocus?.isConnected) returnFocus.focus(); else launch.focus();
+  function scheduleSync() {
+    if (scheduled) return;
+    scheduled = true;
+    setTimeout(() => {
+      scheduled = false;
+      sync();
+    }, 150);
   }
-  launch.addEventListener('click', open);
-  closeButton.addEventListener('click', close);
-  $('.wl-sorter-backdrop').addEventListener('click', close);
-  refresh.addEventListener('click', () => void reload());
-  select.addEventListener('change', () => {
-    mode = isSortMode(select.value) ? select.value : 'default';
-    chrome.storage.local.set({[STORAGE_KEY]: mode}).catch(() => {});
-    render();
+  async function updateMode(next) {
+    mode = isSortMode(next) ? next : 'default';
+    select.value = mode;
+    try { await chrome.storage.local.set({ [STORAGE_KEY]: mode }); } catch {}
+    sync();
+  }
+  select.addEventListener('change', () => { void updateMode(select.value); });
+  refresh.addEventListener('click', () => { void loadData(true); });
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type !== 'WL_SORTER_OPEN') return;
+    scheduleSync();
+    select.focus();
   });
-  document.addEventListener('keydown', event => {
-    if (overlay.hidden) return;
-    if (event.key === 'Escape') { event.preventDefault(); close(); }
-    if (event.key !== 'Tab') return;
-    const active = [...overlay.querySelectorAll('button:not(:disabled), select, a[href]')].filter(el => el.getClientRects().length > 0);
-    if (!active.length) return;
-    const first = active[0], last = active[active.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  window.addEventListener('hashchange', scheduleSync);
+  window.addEventListener('popstate', scheduleSync);
+  new MutationObserver(records => {
+    if (records.some(record => !root.contains(record.target) &&
+      ![...record.addedNodes].every(node => node === root)))
+      scheduleSync();
+  }).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['href', 'data-bvid']
   });
-  chrome.runtime.onMessage.addListener(message => { if (message?.type === 'WL_SORTER_OPEN') open(); });
-  document.documentElement.append(root);
   chrome.storage.local.get(STORAGE_KEY).then(saved => {
     if (isSortMode(saved?.[STORAGE_KEY])) mode = saved[STORAGE_KEY];
     select.value = mode;
-  }).catch(() => {});
+    sync();
+  }).catch(() => sync());
+  scheduleSync();
 })();
