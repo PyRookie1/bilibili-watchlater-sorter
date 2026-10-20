@@ -162,7 +162,10 @@
     mode = data.mode;
     try { localStorage.setItem(STORE, mode); } catch {}
     const applied = rearrangeNativeState();
-    root.postMessage({ channel: CHANNEL, type: 'MODE_RESULT', id: data.id, applied }, location.origin);
+    const metadata = lastUnsorted?.map(video => ({
+      aid: video.aid, bvid: video.bvid, pubdate: video.pubdate, duration: video.duration
+    })) || null;
+    root.postMessage({ channel: CHANNEL, type: 'MODE_RESULT', id: data.id, applied, metadata }, location.origin);
   });
 
   root.WatchLaterNativeBridge = Object.freeze({
