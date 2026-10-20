@@ -222,7 +222,14 @@
     hideNative();
     setStatus('已全量排序 ' + videos.length + '/' + count);
   }
-  function fetchFromPage() {
+  function readDisplayedTotal() {
+    // Bilibili shows the complete count beside the page title (e.g. 稍后再看 · 423).
+    // The DOM tag/class changes often, so use visible text and a strict adjacent-number match.
+    const visibleText = document.body?.innerText || '';
+    const match = visibleText.slice(0, 3500).match(/稍后再看\s*[·:：]?\s*(\d{1,6})(?!\d)/);
+    return match ? Number(match[1]) : null;
+  }
+  function fetchFromPage(expectedCount) {
     return new Promise((resolve, reject) => {
       const id = crypto.randomUUID();
       let finished = false;
@@ -241,22 +248,26 @@
           finish(null, data.payload);
       }
       window.addEventListener('message', onMessage);
-      window.postMessage({ channel: CHANNEL, type: 'REQUEST', id }, location.origin);
+      window.postMessage({ channel: CHANNEL, type: 'REQUEST', id, expectedCount }, location.origin);
     });
   }
   async function fetchList() {
+    const expectedCount = readDisplayedTotal();
+    const complete = result => result?.ok && Array.isArray(result.items) &&
+      result.count === result.items.length &&
+      (expectedCount === null || expectedCount === result.count);
     let primaryError = '扩展后台读取失败';
     try {
-      const result = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH' });
-      if (result?.ok && Array.isArray(result.items) && result.count === result.items.length) return result;
-      primaryError = result?.error || '后台接口未返回完整列表';
+      const result = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH', expectedCount });
+      if (complete(result)) return result;
+      primaryError = result?.error || '后台接口返回数量与页面总数不符';
     } catch (error) {
       primaryError = error instanceof Error ? error.message : primaryError;
     }
     try {
-      const result = await fetchFromPage();
-      if (result?.ok && Array.isArray(result.items) && result.count === result.items.length) return result;
-      throw new Error(result?.error || '页面接口未返回完整列表');
+      const result = await fetchFromPage(expectedCount);
+      if (complete(result)) return result;
+      throw new Error(result?.error || '页面接口返回数量与页面总数不符');
     } catch (error) {
       throw new Error(primaryError + '；备用方式：' + (error instanceof Error ? error.message : '失败'));
     }
