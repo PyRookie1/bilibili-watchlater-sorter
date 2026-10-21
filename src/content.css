@@ -35,7 +35,7 @@
 .wl-sorter-published {
   position: absolute !important;
   left: 6px !important;
-  bottom: 8px !important;
+  bottom: 7px !important;
   z-index: 8;
   display: inline-block;
   max-width: calc(100% - 12px);
