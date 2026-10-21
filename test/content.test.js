@@ -46,7 +46,7 @@ test('preload begins silently on page mount and metadata is reused on selection'
   assert.match(content, /function beginPreload\(\)/);
   assert.match(content, /void fullData\(\)\.catch/);
   assert.match(content, /void requestPage\('PREPARE', \{\}, 120000\)/);
-  assert.match(content, /if \(mount\(\)\) beginPreload\(\)/);
+  assert.match(content, /if \(mount\(\)\) \{\s*beginPreload\(\);/);
   assert.match(content, /requestPage\('SET_MODE', \{ mode: next, items \}/);
   assert.match(content, /select\.addEventListener\('change'/);
 });
