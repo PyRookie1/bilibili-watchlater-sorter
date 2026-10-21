@@ -68,6 +68,36 @@
     return host && host !== card && card.contains(host) ? host : null;
   }
 
+  // Prefer the actual native progress / total-duration label on the same
+  // thumbnail. Browser zoom, Bilibili CSS and user fonts can change its size.
+  const TIME_TEXT = /^(?:\d{1,3}:)?\d{1,2}:\d{2}(?:\/(?:\d{1,3}:)?\d{1,2}:\d{2})?$/;
+  function findNativeTime(container) {
+    if (!container?.querySelectorAll) return null;
+    let matched = null;
+    for (const element of container.querySelectorAll('span, time, div, p')) {
+      if (element.classList?.contains(BADGE)) continue;
+      const value = element.textContent?.replace(/\s+/g, '') || '';
+      if (TIME_TEXT.test(value)) matched = element;
+    }
+    return matched;
+  }
+
+  function matchNativeTimeFont(card, host, badge) {
+    if (!badge.style) return;
+    const reference = findNativeTime(host) || findNativeTime(card);
+    if (!reference) {
+      badge.style.removeProperty('font-size');
+      badge.style.removeProperty('font-family');
+      badge.style.removeProperty('font-weight');
+      return;
+    }
+    const font = getComputedStyle(reference);
+    if (Number.isFinite(parseFloat(font.fontSize)) && parseFloat(font.fontSize) > 0)
+      badge.style.fontSize = font.fontSize;
+    if (font.fontFamily) badge.style.fontFamily = font.fontFamily;
+    if (font.fontWeight) badge.style.fontWeight = font.fontWeight;
+  }
+
   function removeCardBadge(card) {
     for (const badge of card.querySelectorAll('.' + BADGE)) {
       const host = badge.parentElement;
@@ -119,6 +149,7 @@
         badge.textContent = text;
         badge.setAttribute('aria-label', '发布时间：' + text);
       }
+      matchNativeTimeFont(card, host, badge);
       shown++;
     }
     return { shown, cards: cards.length };
