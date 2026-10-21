@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.8.1",
-  "description": "在稍后再看原生列表全量排序，并将发布时间对齐显示在视频封面底部左侧",
+  "version": "0.8.2",
+  "description": "B站稍后再看原生全量排序；仅按发布时间排序时显示与原生时间字号一致的日期",
   "permissions": [
     "storage"
   ],
