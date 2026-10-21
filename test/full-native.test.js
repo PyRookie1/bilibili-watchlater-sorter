@@ -1,0 +1,117 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const native = require('../src/full-native.js');
+const { sortVideos } = require('../src/sort.js');
+
+function rawVideos(count = 424) {
+  return Array.from({ length: count }, (_, i) => ({
+    aid: i + 1, bvid: 'BV' + String(i + 1).padStart(10, '0'),
+    pubdate: 10000 + i, duration: 90000 - i
+  }));
+}
+function card(video) {
+  return {
+    aid: video.aid, cid: video.aid * 10, bvid: video.bvid,
+    cover: 'native cover', rawTitle: 'native title ' + video.aid,
+    title: { title: 'native title', text: 'native text' },
+    author: { name: 'native author' }, stats: { view: 100 + video.aid },
+    progress: 0, isFinished: false
+  };
+}
+function storeFor(raw, initial = 20) {
+  const allCards = raw.map(card);
+  const checkByAid = new Map(allCards.map(video => [video.aid, { aid: video.aid, checked: video.aid === 6 }]));
+  const state = {
+    totalCount: raw.length, loading: false,
+    watchlaterList: allCards.slice(0, initial),
+    checkedList: allCards.slice(0, initial).map(video => checkByAid.get(video.aid))
+  };
+  let loads = 0;
+  const store = {
+    get watchlaterList() { return state.watchlaterList; },
+    get checkedList() { return state.checkedList; },
+    get totalCount() { return state.totalCount; },
+    get loading() { return state.loading; },
+    $patch(callback) { callback(state); },
+    async loadMoreWatchlaterList() {
+      loads++;
+      const from = state.watchlaterList.length;
+      const next = allCards.slice(from, from + 20);
+      state.watchlaterList.push(...next);
+      state.checkedList.push(...next.map(video => checkByAid.get(video.aid)));
+    }
+  };
+  return { store, state, allCards, get loads() { return loads; } };
+}
+
+test('finds Bilibili list store in Vue app-level Pinia injection', () => {
+  const mock = storeFor(rawVideos());
+  const root = { __vue_app__: { _context: { provides: {
+    [Symbol('pinia')]: { _s: new Map([['list', mock.store]]) }
+  } } }, parentElement: null };
+  const grid = { parentElement: root };
+  assert.equal(native.findStore(grid), mock.store);
+});
+
+test('loads all 424 native records in 21 calls without scrolling, then fully sorts', async () => {
+  const raw = rawVideos();
+  const mock = storeFor(raw);
+  const originalFirst = mock.state.watchlaterList[0];
+  const result = await native.sortFull(mock.store, raw, 'duration-asc', sortVideos);
+  assert.deepEqual(result, { ok: true, count: 424 });
+  assert.equal(mock.loads, 21);
+  assert.equal(mock.state.watchlaterList.length, 424);
+  assert.equal(mock.state.watchlaterList[0], mock.allCards[423], 'must keep original normalized native object');
+  assert.equal(mock.state.watchlaterList[423], originalFirst);
+  assert.equal(mock.state.watchlaterList[0].title.text, 'native text');
+  assert.equal(mock.state.watchlaterList[0].stats.view, 524);
+  assert.equal(mock.state.checkedList[418].aid, 6, 'selection stays on its original video');
+  assert.equal(mock.state.checkedList[418].checked, true);
+});
+
+test('switching modes reorders all 424 records, including restoring native API order', async () => {
+  const raw = rawVideos();
+  const mock = storeFor(raw, 424);
+  await native.sortFull(mock.store, raw, 'published-desc', sortVideos);
+  assert.equal(mock.state.watchlaterList[0].aid, 424);
+  await native.sortFull(mock.store, raw, 'default', sortVideos);
+  assert.equal(mock.state.watchlaterList[0].aid, 1);
+  assert.equal(mock.state.watchlaterList[423].aid, 424);
+});
+
+test('rejects incomplete pagination instead of sorting 20 existing cards', async () => {
+  const raw = rawVideos();
+  const mock = storeFor(raw);
+  mock.store.loadMoreWatchlaterList = async () => {};
+  await assert.rejects(
+    native.sortFull(mock.store, raw, 'duration-asc', sortVideos),
+    /原生列表只加载到 20\/424/
+  );
+  assert.equal(mock.state.watchlaterList.length, 20);
+  assert.equal(mock.state.watchlaterList[0].aid, 1);
+});
+
+test('rejects filtered lists and raw/native identity mismatches safely', async () => {
+  const raw = rawVideos();
+  const mock = storeFor(raw, 424);
+  mock.state.totalCount = 20;
+  await assert.rejects(native.sortFull(mock.store, raw, 'published-desc', sortVideos), /筛选/);
+  mock.state.totalCount = 424;
+  mock.state.watchlaterList[3].bvid = 'BV0000009999';
+  await assert.rejects(native.sortFull(mock.store, raw, 'published-desc', sortVideos), /无法一一匹配/);
+  assert.equal(mock.state.watchlaterList[0].aid, 1);
+});
+
+test('handles native state where loading replaces the reactive array instance', async () => {
+  const raw = rawVideos(60);
+  const mock = storeFor(raw);
+  mock.store.loadMoreWatchlaterList = async () => {
+    const begin = mock.store.watchlaterList.length;
+    mock.state.watchlaterList = [...mock.state.watchlaterList, ...mock.allCards.slice(begin, begin + 20)];
+    mock.state.checkedList = [...mock.state.checkedList, ...mock.allCards.slice(begin, begin + 20).map(video => ({ aid: video.aid }))];
+  };
+  const result = await native.sortFull(mock.store, raw, 'duration-asc', sortVideos);
+  assert.equal(result.count, 60);
+  assert.equal(mock.state.watchlaterList[0].aid, 60);
+  assert.equal(mock.state.watchlaterList.length, 60);
+});
