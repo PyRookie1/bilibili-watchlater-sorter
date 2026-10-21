@@ -1,10 +1,10 @@
 {
   "name": "bilibili-watchlater-sorter",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Sort Bilibili Watch Later videos by published date or total duration",
   "scripts": {
-    "test": "node --check src/api.js && node --check src/background.js && node --check src/page-bridge.js && node --check src/sort.js && node --check src/preload.js && node --check src/full-native.js && node --check src/native-intercept.js && node --check src/content.js && node --test"
+    "test": "node --check src/api.js && node --check src/background.js && node --check src/page-bridge.js && node --check src/sort.js && node --check src/preload.js && node --check src/full-native.js && node --check src/native-intercept.js && node --check src/content.js && node --check src/date-overlay.js && node --test"
   },
   "engines": {
     "node": ">=20"
