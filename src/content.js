@@ -4,7 +4,8 @@
 (() => {
   'use strict';
   if (document.getElementById('wl-sorter-root')) return;
-  const { isSortMode } = globalThis.WatchLaterSort;
+  const { isSortMode, formatPublished } = globalThis.WatchLaterSort;
+  const dateOverlay = globalThis.WatchLaterDateOverlay;
   const CHANNEL = 'wl-sorter-bilibili-v1';
   const OPTIONS = [
     ['default', '默认'],
@@ -20,6 +21,7 @@
   let preparedGrid = null;
   let scheduled = false;
   let revision = 0;
+  let activeDates = null;
 
   const root = document.createElement('div');
   root.id = 'wl-sorter-root';
@@ -68,6 +70,7 @@
   function mount() {
     const grid = isListPage() ? document.querySelector('.watchlater-list-container') : null;
     if (grid !== nativeGrid) {
+      dateOverlay.clear(nativeGrid);
       nativeGrid = grid;
       root.remove();
     }
@@ -139,11 +142,16 @@
     void fullData().catch(() => {});
     void requestPage('PREPARE', {}, 120000);
   }
+  function showPublicationDates() {
+    if (nativeGrid && activeDates) dateOverlay.render(nativeGrid, activeDates);
+  }
   async function choose(next) {
     if (!isSortMode(next)) return;
     const current = ++revision;
     mode = next;
     select.value = next;
+    activeDates = null;
+    dateOverlay.clear(nativeGrid);
     report('');
     // No stored preference: refreshing always opens in the Bilibili default mode.
     select.disabled = true;
@@ -156,6 +164,10 @@
       if (current !== revision) return;
       if (!result?.ok)
         throw new Error(result?.error || '原生列表排序超时或页面脚本未响应');
+      if (next !== 'default') {
+        activeDates = dateOverlay.dateMap(items, formatPublished);
+        showPublicationDates();
+      }
       select.title = '已在原生列表排序全部 ' + result.count + ' 条视频';
     } catch (reason) {
       if (current !== revision) return;
@@ -174,7 +186,10 @@
     scheduled = true;
     setTimeout(() => {
       scheduled = false;
-      if (mount()) beginPreload();
+      if (mount()) {
+        beginPreload();
+        showPublicationDates();
+      }
     }, 100);
   }
   window.addEventListener('hashchange', schedule);
