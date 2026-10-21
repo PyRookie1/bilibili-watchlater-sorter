@@ -124,3 +124,20 @@ test('unmatched videos or missing cover never receive an incorrect date', () => 
   assert.equal(overlay.render(native.grid, dates).shown, 0);
   assert.equal(native.badges.length, 0);
 });
+
+
+test('new native video cards added by Vue receive their dates on the next sync', () => {
+  const first = nativeCard('/video/BV0000000001');
+  const second = nativeCard('/video/BV0000000002');
+  const visible = [first.card];
+  const grid = { querySelectorAll: selector => selector === '.video-card' ? visible : [] };
+  const dates = overlay.dateMap([
+    publication(1, timestamp), publication(2, timestamp + 86400)
+  ], formatPublished);
+  assert.equal(overlay.render(grid, dates).shown, 1);
+  visible.push(second.card);
+  assert.equal(overlay.render(grid, dates).shown, 2);
+  assert.equal(first.badges.length, 1);
+  assert.equal(second.badges.length, 1);
+  assert.equal(second.badges[0].textContent, '2026-07-13');
+});
