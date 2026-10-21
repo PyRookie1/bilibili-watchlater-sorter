@@ -16,7 +16,13 @@ function harness({ failure = null } = {}) {
     postMessage(message) { posted.push(message); }
   };
   const calls = [];
+  const prepareCalls = [];
   const core = {
+    async prepare(store) {
+      prepareCalls.push(store);
+      if (failure) throw Error(failure);
+      return { ok: true, count: 424 };
+    },
     assertMetadata(raw) {
       if (!Array.isArray(raw) || raw.length !== 424) throw Error('incomplete');
     },
@@ -40,7 +46,7 @@ function harness({ failure = null } = {}) {
   };
   vm.runInNewContext(src, scope);
   return {
-    posted, calls, window,
+    posted, calls, prepareCalls, window,
     async send(data, origin = 'https://www.bilibili.com') {
       onMessage({ source: window, origin, data: { channel, id, ...data } });
       await new Promise(resolve => setImmediate(resolve));
@@ -74,4 +80,27 @@ test('rejects untrusted message origin, invalid modes and invalid IDs', async ()
   await h.send({ type:'SET_MODE', mode:'duration-asc', items:videos, id:'wl-bad-id' });
   assert.equal(h.calls.length, 0);
   assert.equal(h.posted.length, 0);
+});
+
+
+test('startup PREPARE warms all native records but does not submit a sort mode', async () => {
+  const h = harness();
+  await h.send({ type: 'PREPARE' });
+  assert.equal(h.prepareCalls.length, 1);
+  assert.equal(h.calls.length, 0, 'page open must preserve the native default order');
+  assert.equal(h.posted.length, 1);
+  assert.equal(h.posted[0].type, 'PREPARE_RESULT');
+  assert.equal(h.posted[0].count, 424);
+  assert.equal(h.posted[0].ok, true);
+  await h.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
+  assert.equal(h.calls.length, 1, 'sort selected after background warmup');
+  assert.equal(h.posted.at(-1).type, 'MODE_RESULT');
+});
+
+test('preload errors do not pretend the native list was sorted', async () => {
+  const h = harness({ failure: 'B站原生列表初始化超时' });
+  await h.send({ type: 'PREPARE' });
+  assert.equal(h.posted.at(-1).type, 'PREPARE_RESULT');
+  assert.equal(h.posted.at(-1).ok, false);
+  assert.equal(h.calls.length, 0);
 });
