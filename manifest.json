@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.6.0",
-  "description": "通过B站Pinia原生列表加载全部视频后按发布时间与总时长全量排序，无自动滚屏",
+  "version": "0.7.0",
+  "description": "默认打开为B站原生顺序，页面初始化期间并行预加载全量排序数据",
   "permissions": [
     "storage"
   ],
@@ -27,6 +27,16 @@
       ],
       "run_at": "document_start",
       "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://www.bilibili.com/watchlater*",
+        "https://www.bilibili.com/list/watchlater*"
+      ],
+      "js": [
+        "src/preload.js"
+      ],
+      "run_at": "document_start"
     },
     {
       "matches": [
