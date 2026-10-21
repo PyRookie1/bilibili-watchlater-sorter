@@ -95,6 +95,24 @@
       throw new Error('原生列表只加载到 ' + size + '/' + count + '，未执行局部排序');
   }
 
+  async function prepare(store) {
+    // The website may be mounting its Pinia store when the extension arrives.
+    // Wait for the initial native page load; never trigger its list action
+    // while that initial load is incomplete.
+    const deadline = Date.now() + 20000;
+    while (store?.inited === false || store?.loading ||
+      !Number.isSafeInteger(store?.totalCount) || store.totalCount <= 0 ||
+      !Array.isArray(store.watchlaterList) || store.watchlaterList.length === 0) {
+      if (Date.now() > deadline) throw new Error('B站原生列表初始化超时');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    const count = store.totalCount;
+    if (count > MAX_ITEMS) throw new Error('原生列表数量超过安全上限');
+    await materialize(store, count);
+    // PREPARE must never change the user's original Bilibili sort order.
+    return { ok: true, count };
+  }
+
   function applyOrder(store, raw, mode, sortVideos) {
     const ids = assertMetadata(raw);
     const records = getNativeItems(store);
@@ -139,7 +157,7 @@
   }
 
   root.WatchLaterFullNative = Object.freeze({
-    identity, findStore, assertMetadata, materialize, applyOrder, sortFull
+    identity, findStore, assertMetadata, materialize, prepare, applyOrder, sortFull
   });
   if (typeof module !== 'undefined' && module.exports)
     module.exports = root.WatchLaterFullNative;
