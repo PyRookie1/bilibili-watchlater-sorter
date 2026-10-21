@@ -7,7 +7,7 @@ const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
 test('v0.8.6 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.5');
+  assert.equal(manifest.version, '0.8.6');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
