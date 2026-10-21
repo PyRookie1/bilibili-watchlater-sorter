@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.7.0 prefetches data at document_start before UI arrives', () => {
+test('v0.8.1 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.0');
+  assert.equal(manifest.version, '0.8.1');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -81,7 +81,10 @@ test('publication dates appear on native cover previews only after a successful 
   assert.match(source, /dateOverlay\.render\(nativeGrid, activeDates\)/);
   assert.match(source, /dateOverlay\.clear\(nativeGrid\)/);
   assert.match(css, /\.wl-sorter-published/);
-  assert.match(css, /bottom: 23px/);
+  assert.match(css, /bottom: 6px !important/);
+  assert.match(css, /padding: 0 3px/);
+  assert.match(css, /font: 11px\/16px/);
+  assert.doesNotMatch(css, /bottom: 23px/);
   assert.match(css, /pointer-events: none/);
   assert.match(css, /position: absolute/);
   assert.doesNotMatch(source, /createElement\('article'\)/);
