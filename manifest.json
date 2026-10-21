@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.5.1",
-  "description": "修复稍后再看排序无响应：完整数据读取、原生卡片渐进排序及页面数据同步",
+  "version": "0.6.0",
+  "description": "通过B站Pinia原生列表加载全部视频后按发布时间与总时长全量排序，无自动滚屏",
   "permissions": [
     "storage"
   ],
@@ -20,6 +20,7 @@
       ],
       "js": [
         "src/sort.js",
+        "src/full-native.js",
         "src/native-intercept.js",
         "src/api.js",
         "src/page-bridge.js"
@@ -34,7 +35,6 @@
       ],
       "js": [
         "src/sort.js",
-        "src/native-sort.js",
         "src/content.js"
       ],
       "css": [
