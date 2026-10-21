@@ -5,51 +5,67 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.6.0 loads full native Pinia sorter before the page bridge', () => {
+test('v0.7.0 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.6.0');
+  assert.equal(manifest.version, '0.7.0');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
-  const isolated = manifest.content_scripts.find(item => item.world !== 'MAIN');
+  const early = manifest.content_scripts.find(item =>
+    item.world !== 'MAIN' && item.js.includes('src/preload.js'));
+  const isolated = manifest.content_scripts.find(item =>
+    item.world !== 'MAIN' && item.js.includes('src/content.js'));
   assert.equal(main.run_at, 'document_start');
+  assert.equal(early.run_at, 'document_start');
+  assert.deepEqual(early.js, ['src/preload.js']);
+  assert.deepEqual(isolated.js, ['src/sort.js', 'src/content.js']);
   assert.deepEqual(main.js, [
     'src/sort.js', 'src/full-native.js', 'src/native-intercept.js',
     'src/api.js', 'src/page-bridge.js'
   ]);
-  assert.deepEqual(isolated.js, ['src/sort.js', 'src/content.js']);
-  for (const rule of manifest.content_scripts) {
+  for (const rule of manifest.content_scripts)
     for (const script of rule.js)
       assert.ok(fs.existsSync(path.join(base, script)), script);
-  }
 });
 
-test('no fake native-card sorting by CSS order, forced scroll or page reload', () => {
+test('every new page starts in Bilibili default order with label 默认', () => {
   const content = read('src/content.js');
-  const native = read('src/full-native.js');
-  const main = read('src/native-intercept.js');
-  for (const code of [content, native, main]) {
+  assert.match(content, /\['default', '默认'\]/);
+  assert.match(content, /let mode = 'default'/);
+  assert.match(content, /select\.value = 'default'/);
+  assert.doesNotMatch(content, /localStorage\.getItem|localStorage\.setItem|wl-sorter-mode/);
+  assert.doesNotMatch(content, /void choose\(mode\)/);
+});
+
+test('preload begins silently on page mount and metadata is reused on selection', () => {
+  const content = read('src/content.js');
+  const preload = read('src/preload.js');
+  assert.match(preload, /WatchLaterEarlyDataPromise/);
+  assert.match(preload, /chrome\.runtime\.sendMessage\(\{ type: 'WL_SORTER_FETCH' \}\)/);
+  assert.match(content, /globalThis\.WatchLaterEarlyDataPromise/);
+  assert.match(content, /function fullData\(\)/);
+  assert.match(content, /if \(!dataPromise\)/);
+  assert.match(content, /function beginPreload\(\)/);
+  assert.match(content, /void fullData\(\)\.catch/);
+  assert.match(content, /void requestPage\('PREPARE', \{\}, 120000\)/);
+  assert.match(content, /if \(mount\(\)\) beginPreload\(\)/);
+  assert.match(content, /requestPage\('SET_MODE', \{ mode: next, items \}/);
+  assert.match(content, /select\.addEventListener\('change'/);
+});
+
+test('no CSS card sort, forced page scroll, refresh, or extra view', () => {
+  for (const name of ['src/content.js', 'src/full-native.js', 'src/native-intercept.js']) {
+    const code = read(name);
     assert.doesNotMatch(code, /\.scrollTop\s*=|scrollIntoView|window\.scrollTo|location\.reload\(/);
     assert.doesNotMatch(code, /createElement\('article'\)|fullGrid|wl-sorter-full-list/);
     assert.doesNotMatch(code, /style\.setProperty\('order'|sortVisibleCards\(/);
   }
-  assert.doesNotMatch(content, /querySelectorAll\('\.video-card'\)/);
 });
 
-test('select requires complete API data and confirms native state was fully sorted', () => {
+test('selection only succeeds on complete native Pinia state', () => {
   const content = read('src/content.js');
-  assert.match(content, /select\.addEventListener\('change'/);
-  assert.match(content, /chrome\.runtime\.sendMessage\(\{ type: 'WL_SORTER_FETCH' \}/);
-  assert.match(content, /requestPage\('REQUEST'/);
-  assert.match(content, /requestPage\('SET_MODE', \{ mode, items \}/);
-  assert.match(content, /result\?\.ok/);
-  assert.match(content, /全量排序失败：/);
-  assert.match(content, /const id = crypto\.randomUUID\(\)/);
-});
-
-test('native loader is the only source of additional Bilibili card records', () => {
   const native = read('src/full-native.js');
-  assert.match(native, /store\.loadMoreWatchlaterList\(\)/);
-  assert.match(native, /watchlaterList\.splice\(0, state\.watchlaterList\.length, \.\.\.next\)/);
-  assert.match(native, /getNativeItems\(store\)\.length/);
+  assert.match(content, /if \(!result\?\.ok\)/);
+  assert.match(content, /全量排序失败：/);
+  assert.match(native, /await materialize\(store, raw\.length\)/);
   assert.match(native, /原生列表只加载到/);
   assert.match(native, /原生视频与接口完整列表无法一一匹配/);
 });
