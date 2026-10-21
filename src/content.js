@@ -1,26 +1,25 @@
-/* One native-page dropdown. Full sorting occurs in Bilibili's Pinia list store. */
+/* Native watch-later sort selector. Each page opens in Bilibili default order.
+ * Full metadata and native records preload in parallel before a sort is chosen.
+ */
 (() => {
   'use strict';
   if (document.getElementById('wl-sorter-root')) return;
   const { isSortMode } = globalThis.WatchLaterSort;
   const CHANNEL = 'wl-sorter-bilibili-v1';
-  const KEY = 'wl-sorter-mode';
   const OPTIONS = [
-    ['default', 'B站默认顺序'],
+    ['default', '默认'],
     ['published-desc', '发布时间：最新优先'],
     ['published-asc', '发布时间：最早优先'],
     ['duration-asc', '总时长：短到长'],
     ['duration-desc', '总时长：长到短']
   ];
   let mode = 'default';
-  try {
-    const saved = localStorage.getItem(KEY);
-    if (isSortMode(saved)) mode = saved;
-  } catch {}
   let cached = null;
+  let dataPromise = null;
   let nativeGrid = null;
+  let preparedGrid = null;
   let scheduled = false;
-  let initial = mode !== 'default';
+  let revision = 0;
 
   const root = document.createElement('div');
   root.id = 'wl-sorter-root';
@@ -36,7 +35,7 @@
     option.textContent = caption;
     select.append(option);
   }
-  select.value = mode;
+  select.value = 'default';
   label.append(select);
   const error = document.createElement('span');
   error.className = 'wl-sorter-error';
@@ -44,10 +43,11 @@
   error.hidden = true;
   root.append(label, error);
 
-  function report(text = '') {
-    error.textContent = text;
-    error.hidden = !text;
-    select.title = text || '完整列表原生排序';
+  function report(message = '') {
+    error.textContent = message;
+    error.title = message;
+    error.hidden = !message;
+    select.title = message || '完整列表原生排序';
   }
   function isListPage() {
     return /^\/(?:watchlater(?:\/list)?|list\/watchlater)\/?$/.test(location.pathname) &&
@@ -70,7 +70,6 @@
     if (grid !== nativeGrid) {
       nativeGrid = grid;
       root.remove();
-      if (grid && mode !== 'default') initial = true;
     }
     if (!grid) { root.remove(); return false; }
     if (!root.isConnected) {
@@ -83,7 +82,7 @@
     }
     return true;
   }
-  function requestPage(type, fields, timeoutMs = 12000) {
+  function requestPage(type, fields = {}, timeoutMs = 12000) {
     return new Promise(resolve => {
       const id = crypto.randomUUID();
       const timer = setTimeout(() => finish(null), timeoutMs);
@@ -96,7 +95,8 @@
         if (event.source !== window || event.origin !== location.origin) return;
         const data = event.data;
         if (data?.channel !== CHANNEL || data.id !== id) return;
-        if (data.type === 'MODE_RESULT' || data.type === 'RESPONSE') finish(data);
+        if (['PREPARE_RESULT', 'MODE_RESULT', 'RESPONSE'].includes(data.type))
+          finish(data);
       }
       window.addEventListener('message', onMessage);
       window.postMessage({ channel: CHANNEL, type, id, ...fields }, location.origin);
@@ -106,44 +106,63 @@
     return result?.ok && Array.isArray(result.items) &&
       Number.isSafeInteger(result.count) && result.count === result.items.length;
   }
-  async function fullData() {
-    if (cached) return cached;
+  async function fetchFullData() {
+    const early = await (globalThis.WatchLaterEarlyDataPromise || Promise.resolve(null));
+    if (complete(early)) return early.items;
     let backgroundError = '后台没有返回完整列表';
     try {
       const data = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH' });
-      if (complete(data)) return cached = data.items;
+      if (complete(data)) return data.items;
       backgroundError = data?.error || backgroundError;
     } catch (reason) {
       backgroundError = reason?.message || String(reason);
     }
     const fallback = await requestPage('REQUEST', {}, 35000);
-    if (complete(fallback?.payload)) return cached = fallback.payload.items;
+    if (complete(fallback?.payload)) return fallback.payload.items;
     throw new Error(backgroundError + '；备用接口：' +
       (fallback?.payload?.error || '没有返回完整列表'));
   }
+  function fullData() {
+    if (cached) return Promise.resolve(cached);
+    if (!dataPromise) {
+      dataPromise = fetchFullData().then(items => {
+        cached = items;
+        return items;
+      }).finally(() => { dataPromise = null; });
+    }
+    return dataPromise;
+  }
+  function beginPreload() {
+    if (!nativeGrid || !isListPage() || preparedGrid === nativeGrid) return;
+    preparedGrid = nativeGrid;
+    // Run independently: both requests start while the native page is opening.
+    void fullData().catch(() => {});
+    void requestPage('PREPARE', {}, 120000);
+  }
   async function choose(next) {
     if (!isSortMode(next)) return;
+    const current = ++revision;
     mode = next;
-    select.value = mode;
+    select.value = next;
     report('');
-    try { localStorage.setItem(KEY, mode); } catch {}
-    // Let Bilibili's own loadMore action finish; do not scroll or alter cards.
+    // No stored preference: refreshing always opens in the Bilibili default mode.
     select.disabled = true;
-    select.title = '正在整理原生完整列表';
+    select.title = '正在应用完整列表排序';
     try {
       if (!mount()) throw new Error('未找到 B站稍后再看原生列表');
+      beginPreload();
       const items = await fullData();
-      const result = await requestPage('SET_MODE', { mode, items }, 120000);
-      if (!result?.ok) throw new Error(result?.error || '原生列表排序超时或页面脚本未响应');
-      report('');
+      const result = await requestPage('SET_MODE', { mode: next, items }, 120000);
+      if (current !== revision) return;
+      if (!result?.ok)
+        throw new Error(result?.error || '原生列表排序超时或页面脚本未响应');
       select.title = '已在原生列表排序全部 ' + result.count + ' 条视频';
     } catch (reason) {
-      // Stale data after a Bilibili delete or filter can be refreshed by
-      // simply choosing another mode; failed sorts must not be called "full".
+      if (current !== revision) return;
       cached = null;
       report('全量排序失败：' + (reason?.message || reason));
     } finally {
-      select.disabled = false;
+      if (current === revision) select.disabled = false;
     }
   }
   select.addEventListener('change', () => { void choose(select.value); });
@@ -155,12 +174,8 @@
     scheduled = true;
     setTimeout(() => {
       scheduled = false;
-      if (!mount()) return;
-      if (initial) {
-        initial = false;
-        void choose(mode);
-      }
-    }, 120);
+      if (mount()) beginPreload();
+    }, 100);
   }
   window.addEventListener('hashchange', schedule);
   window.addEventListener('popstate', schedule);
