@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.7.0",
-  "description": "默认打开为B站原生顺序，页面初始化期间并行预加载全量排序数据",
+  "version": "0.8.0",
+  "description": "在B站稍后再看原生列表全量排序，并在排序后于视频封面左下角显示发布时间",
   "permissions": [
     "storage"
   ],
@@ -45,6 +45,7 @@
       ],
       "js": [
         "src/sort.js",
+        "src/date-overlay.js",
         "src/content.js"
       ],
       "css": [
