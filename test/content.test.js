@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.2 prefetches data at document_start before UI arrives', () => {
+test('v0.8.3 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.2');
+  assert.equal(manifest.version, '0.8.3');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -86,6 +86,8 @@ test('publication dates appear only after successful publication-date sorting', 
   assert.match(css, /padding: 0 3px/);
   assert.match(css, /font: 12px\/16px/);
   assert.doesNotMatch(css, /bottom: 23px/);
+  assert.match(css, /background: rgba\(0, 0, 0, 0\.50\)/);
+  assert.doesNotMatch(css, /background: rgba\(0, 0, 0, 0\.74\)/);
   assert.match(css, /pointer-events: none/);
   assert.match(css, /position: absolute/);
   assert.doesNotMatch(source, /createElement\('article'\)/);
