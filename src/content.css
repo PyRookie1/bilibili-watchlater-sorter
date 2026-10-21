@@ -27,3 +27,25 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: #d03050; font-size: 12px;
 }
+
+/* Inside Bilibili's own cover preview, above its bottom-left view count. */
+.wl-sorter-cover-relative {
+  position: relative !important;
+}
+.wl-sorter-published {
+  position: absolute !important;
+  left: 6px !important;
+  bottom: 23px !important;
+  z-index: 8;
+  display: inline-block;
+  max-width: calc(100% - 12px);
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.74);
+  color: #fff !important;
+  font: 11px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif !important;
+  letter-spacing: 0;
+  white-space: nowrap;
+  pointer-events: none !important;
+  user-select: none;
+}
