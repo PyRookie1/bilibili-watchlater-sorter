@@ -1,6 +1,6 @@
 {
   "name": "bilibili-watchlater-sorter",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "description": "Sort Bilibili Watch Later videos by published date or total duration",
   "scripts": {
