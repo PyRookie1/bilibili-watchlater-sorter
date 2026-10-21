@@ -15,7 +15,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const expectedCount = Number.isSafeInteger(message.expectedCount) && message.expectedCount >= 0
     ? message.expectedCount : undefined;
   WatchLaterApi.fetchCompleteList(fetch, { expectedCount }).then(sendResponse).catch(error => sendResponse({
-    ok: false, error: error instanceof Error ? error.message : '无法读取完整稍后再看列表'
+    ok: false, error: error && typeof error.message === 'string' ? error.message : '无法读取完整稍后再看列表'
   }));
   return true;
 });
