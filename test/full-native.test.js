@@ -115,3 +115,39 @@ test('handles native state where loading replaces the reactive array instance', 
   assert.equal(mock.state.watchlaterList[0].aid, 60);
   assert.equal(mock.state.watchlaterList.length, 60);
 });
+
+
+test('page-open PREPARE hydrates all native cards but leaves Bilibili default order intact', async () => {
+  const raw = rawVideos();
+  const mock = storeFor(raw);
+  const first = mock.state.watchlaterList[0];
+  const result = await native.prepare(mock.store);
+  assert.deepEqual(result, { ok: true, count: 424 });
+  assert.equal(mock.state.watchlaterList.length, 424);
+  assert.equal(mock.state.watchlaterList[0], first);
+  assert.deepEqual(mock.state.watchlaterList.map(x => x.aid), raw.map(x => x.aid));
+  assert.equal(mock.loads, 21);
+  await native.sortFull(mock.store, raw, 'duration-asc', sortVideos);
+  assert.equal(mock.loads, 21, 'select after warmup must not repeat network loads');
+  assert.equal(mock.state.watchlaterList[0].aid, 424);
+});
+
+test('PREPARE waits for delayed initial native Pinia state without touching order', async () => {
+  const raw = rawVideos(60);
+  const mock = storeFor(raw, 0);
+  mock.state.totalCount = 0;
+  mock.state.inited = false;
+  Object.defineProperty(mock.store, 'inited', { get: () => mock.state.inited });
+  const operation = native.prepare(mock.store);
+  setTimeout(() => {
+    mock.state.totalCount = 60;
+    mock.state.inited = true;
+    mock.state.watchlaterList.push(...mock.allCards.slice(0, 20));
+    mock.state.checkedList.push(...mock.allCards.slice(0, 20).map(x => ({ aid: x.aid })));
+  }, 35);
+  const result = await operation;
+  assert.equal(result.count, 60);
+  assert.equal(mock.state.watchlaterList.length, 60);
+  assert.equal(mock.state.watchlaterList[0].aid, 1);
+  assert.equal(mock.loads, 2);
+});
