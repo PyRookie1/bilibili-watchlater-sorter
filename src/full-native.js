@@ -52,22 +52,27 @@
   }
 
   async function materialize(store, count) {
-    const items = getNativeItems(store);
-    if (!Array.isArray(items)) throw new Error('原生稍后再看列表不存在');
+    if (!Array.isArray(getNativeItems(store))) throw new Error('原生稍后再看列表不存在');
     if (Number.isSafeInteger(store.totalCount) && store.totalCount !== count) {
       throw new Error('当前筛选列表数量与全部视频数不同，请先恢复全部列表');
     }
     const maxCalls = Math.min(100, Math.ceil(Math.max(0, count - items.length) / 20) + 8);
     let stalled = 0;
-    for (let call = 0; items.length < count && call < maxCalls; call++) {
+    for (let call = 0; getNativeItems(store).length < count && call < maxCalls; call++) {
       await awaitIdle(store);
       const before = getNativeItems(store).length;
       if (before >= count) break;
-      await Promise.race([
-        Promise.resolve().then(() => store.loadMoreWatchlaterList()),
-        new Promise((_, reject) => setTimeout(
-          () => reject(new Error('B站原生列表加载超时')), 12000))
-      ]);
+      let timer;
+      try {
+        await Promise.race([
+          Promise.resolve().then(() => store.loadMoreWatchlaterList()),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('B站原生列表加载超时')), 12000);
+          })
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
       await awaitIdle(store);
       const after = getNativeItems(store).length;
       if (after > count) throw new Error('原生列表数量超过接口数据，停止排序');
