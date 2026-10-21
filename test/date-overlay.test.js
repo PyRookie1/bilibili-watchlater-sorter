@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const overlay = require('../src/date-overlay.js');
 const { formatPublished } = require('../src/sort.js');
 
-global.getComputedStyle = () => ({ position: 'static' });
+global.getComputedStyle = element => element?.computed || ({ position: 'static' });
 
 function fakeClassList() {
   const list = new Set();
@@ -16,6 +16,12 @@ function nativeCard(href, options = {}) {
       assert.equal(tag, 'span');
       return {
         className: '', parentElement: null, textContent: '',
+        style: {
+          removeProperty(name) {
+            const camel = name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+            delete this[camel];
+          }
+        },
         attrs: {}, setAttribute(key, value) { this.attrs[key] = value; },
         remove() {
           if (this.parentElement) {
@@ -140,4 +146,44 @@ test('new native video cards added by Vue receive their dates on the next sync',
   assert.equal(first.badges.length, 1);
   assert.equal(second.badges.length, 1);
   assert.equal(second.badges[0].textContent, '2026-07-13');
+});
+
+
+test('publication typography follows the native video progress / duration text', () => {
+  const native = nativeCard('/video/BV0000000001');
+  const time = {
+    textContent: '00:15 / 02:18:07',
+    classList: { contains: () => false },
+    computed: { fontSize: '13px', fontFamily: 'Arial', fontWeight: '500' }
+  };
+  native.host.querySelectorAll = () => [time];
+  const dates = overlay.dateMap([publication(1, timestamp)], formatPublished);
+  overlay.render(native.grid, dates);
+  const badge = native.badges[0];
+  assert.equal(badge.style.fontSize, '13px');
+  assert.equal(badge.style.fontFamily, 'Arial');
+  assert.equal(badge.style.fontWeight, '500');
+  // Vue can update the native time font, without re-creating the date badge.
+  time.computed.fontSize = '14px';
+  overlay.render(native.grid, dates);
+  assert.equal(native.badges.length, 1);
+  assert.equal(native.badges[0], badge);
+  assert.equal(badge.style.fontSize, '14px');
+});
+
+test('falls back to the 12px stylesheet if the native time label is absent', () => {
+  const native = nativeCard('/video/BV0000000001');
+  const time = {
+    textContent: '00:15/02:18:07',
+    classList: { contains: () => false },
+    computed: { fontSize: '12px', fontFamily: 'Arial', fontWeight: '400' }
+  };
+  native.host.querySelectorAll = () => [time];
+  const dates = overlay.dateMap([publication(1, timestamp)], formatPublished);
+  overlay.render(native.grid, dates);
+  assert.equal(native.badges[0].style.fontSize, '12px');
+  native.host.querySelectorAll = () => [];
+  overlay.render(native.grid, dates);
+  assert.equal(native.badges[0].style.fontSize, undefined,
+    'remove stale inline size so the CSS fallback can apply');
 });
