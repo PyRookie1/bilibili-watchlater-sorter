@@ -5,7 +5,7 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.5 prefetches data at document_start before UI arrives', () => {
+test('v0.8.6 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
   assert.equal(manifest.version, '0.8.5');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
@@ -82,9 +82,10 @@ test('publication dates appear only after successful publication-date sorting', 
   assert.match(source, /dateOverlay\.render\(nativeGrid, activeDates\)/);
   assert.match(source, /dateOverlay\.clear\(nativeGrid\)/);
   assert.match(css, /\.wl-sorter-published/);
-  assert.match(css, /bottom: 7px !important/);
+  assert.match(css, /bottom: 7\.5px !important/);
   assert.match(css, /padding: 0 3px/);
   assert.match(css, /font: 12px\/16px/);
+  assert.doesNotMatch(css, /bottom: 7px !important/);
   assert.doesNotMatch(css, /bottom: 8px !important/);
   assert.doesNotMatch(css, /bottom: 6px !important/);
   assert.doesNotMatch(css, /bottom: 23px/);
