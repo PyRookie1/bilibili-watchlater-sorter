@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.1 prefetches data at document_start before UI arrives', () => {
+test('v0.8.2 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.1');
+  assert.equal(manifest.version, '0.8.2');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -71,21 +71,32 @@ test('selection only succeeds on complete native Pinia state', () => {
 });
 
 
-test('publication dates appear on native cover previews only after a successful custom sort', () => {
+test('publication dates appear only after successful publication-date sorting', () => {
   const source = read('src/content.js');
   const css = read('src/content.css');
   assert.match(source, /const dateOverlay = globalThis\.WatchLaterDateOverlay/);
   assert.match(source, /activeDates = dateOverlay\.dateMap\(items, formatPublished\)/);
-  assert.match(source, /if \(next !== 'default'\)/);
+  assert.match(source, /if \(next === 'published-asc' \|\| next === 'published-desc'\)/);
+  assert.doesNotMatch(source, /if \(next !== 'default'\)/);
   assert.match(source, /showPublicationDates\(\)/);
   assert.match(source, /dateOverlay\.render\(nativeGrid, activeDates\)/);
   assert.match(source, /dateOverlay\.clear\(nativeGrid\)/);
   assert.match(css, /\.wl-sorter-published/);
   assert.match(css, /bottom: 6px !important/);
   assert.match(css, /padding: 0 3px/);
-  assert.match(css, /font: 11px\/16px/);
+  assert.match(css, /font: 12px\/16px/);
   assert.doesNotMatch(css, /bottom: 23px/);
   assert.match(css, /pointer-events: none/);
   assert.match(css, /position: absolute/);
   assert.doesNotMatch(source, /createElement\('article'\)/);
+});
+
+
+test('publication labels inherit native video progress/time typography where available', () => {
+  const overlay = read('src/date-overlay.js');
+  assert.match(overlay, /function findNativeTime\(container\)/);
+  assert.match(overlay, /function matchNativeTimeFont\(card, host, badge\)/);
+  assert.match(overlay, /badge\.style\.fontSize = font\.fontSize/);
+  assert.match(overlay, /matchNativeTimeFont\(card, host, badge\)/);
+  assert.doesNotMatch(read('src/content.css'), /font:\s*11px\/16px/);
 });
