@@ -56,7 +56,7 @@
     if (Number.isSafeInteger(store.totalCount) && store.totalCount !== count) {
       throw new Error('当前筛选列表数量与全部视频数不同，请先恢复全部列表');
     }
-    const maxCalls = Math.min(100, Math.ceil(Math.max(0, count - items.length) / 20) + 8);
+    const maxCalls = Math.min(100, Math.ceil(Math.max(0, count - getNativeItems(store).length) / 20) + 8);
     let stalled = 0;
     for (let call = 0; getNativeItems(store).length < count && call < maxCalls; call++) {
       await awaitIdle(store);
