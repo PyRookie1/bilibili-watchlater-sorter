@@ -164,7 +164,7 @@
       if (current !== revision) return;
       if (!result?.ok)
         throw new Error(result?.error || '原生列表排序超时或页面脚本未响应');
-      if (next !== 'default') {
+      if (next === 'published-asc' || next === 'published-desc') {
         activeDates = dateOverlay.dateMap(items, formatPublished);
         showPublicationDates();
       }
