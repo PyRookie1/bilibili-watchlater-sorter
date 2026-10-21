@@ -1,0 +1,98 @@
+name: Publish Edge extension
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: edge-extension-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Build and validate Edge ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const m = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+          if (m.manifest_version !== 3 || !m.version) throw Error('Invalid MV3 manifest');
+          for (const script of m.content_scripts) {
+            for (const file of script.js) {
+              if (!fs.statSync(file).isFile()) throw Error('Missing extension script: ' + file);
+            }
+            for (const file of script.css || []) {
+              if (!fs.statSync(file).isFile()) throw Error('Missing stylesheet: ' + file);
+            }
+          }
+          if (!fs.statSync(m.background.service_worker).isFile()) throw Error('Missing background script');
+          NODE
+          VERSION="$(node -p "require('./manifest.json').version")"
+          TAG="v$VERSION"
+          ASSET="bilibili-watchlater-sorter-edge-$TAG.zip"
+          ZIP_PATH="$RUNNER_TEMP/$ASSET"
+          zip -q -9 -r "$ZIP_PATH" manifest.json src README.md
+          unzip -t "$ZIP_PATH"
+          unzip -Z -1 "$ZIP_PATH" | grep -Fx 'manifest.json'
+          unzip -Z -1 "$ZIP_PATH" | grep -Fx 'src/content.js'
+          unzip -Z -1 "$ZIP_PATH" | grep -Fx 'src/content.css'
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "RELEASE_ASSET=$ZIP_PATH" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          ## Edge / Chrome 扩展安装包
+
+          下载下方 bilibili-watchlater-sorter-edge-*.zip，解压到本地文件夹，再在 Edge 的 edge://extensions 中开启「开发人员模式」，点击「加载解压缩的扩展」，选择解压后包含 manifest.json 的文件夹即可使用。无需安装 Node.js 或自行编译。
+
+          注意：Edge「加载解压缩的扩展」不能直接选择 ZIP 文件，必须先解压。请选择下方 Assets 中以 bilibili-watchlater-sorter-edge- 开头的压缩包，而不是 GitHub 自动生成的 Source code 压缩包。
+
+          ### 功能
+
+          - 保留 B 站原生稍后再看页面，支持完整列表的发布时间及总时长排序。
+          - 每次打开网页默认使用 B 站原有顺序。
+          - 发布时间排序时，封面左下角显示发布日期；其他模式自动隐藏。
+          - 页面加载期间提前预加载排序数据，不自动滚动或刷新。
+
+          其他使用方式、适配范围和隐私说明请参阅仓库 README。
+          NOTES
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RELEASE_ASSET" --clobber
+            gh release edit "$RELEASE_TAG" \
+              --title "B站稍后再看排序 $RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+          else
+            gh release create "$RELEASE_TAG" "$RELEASE_ASSET" \
+              --target "$GITHUB_SHA" \
+              --title "B站稍后再看排序 $RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" \
+              --latest
+          fi
+          gh release view "$RELEASE_TAG" --json url,assets \
+            --jq '{url: .url, assets: [.assets[].name]}'
