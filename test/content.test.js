@@ -7,7 +7,7 @@ const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
 test('v0.7.0 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.7.0');
+  assert.equal(manifest.version, '0.8.0');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -16,7 +16,7 @@ test('v0.7.0 prefetches data at document_start before UI arrives', () => {
   assert.equal(main.run_at, 'document_start');
   assert.equal(early.run_at, 'document_start');
   assert.deepEqual(early.js, ['src/preload.js']);
-  assert.deepEqual(isolated.js, ['src/sort.js', 'src/content.js']);
+  assert.deepEqual(isolated.js, ['src/sort.js', 'src/date-overlay.js', 'src/content.js']);
   assert.deepEqual(main.js, [
     'src/sort.js', 'src/full-native.js', 'src/native-intercept.js',
     'src/api.js', 'src/page-bridge.js'
@@ -68,4 +68,21 @@ test('selection only succeeds on complete native Pinia state', () => {
   assert.match(native, /await materialize\(store, raw\.length\)/);
   assert.match(native, /原生列表只加载到/);
   assert.match(native, /原生视频与接口完整列表无法一一匹配/);
+});
+
+
+test('publication dates appear on native cover previews only after a successful custom sort', () => {
+  const source = read('src/content.js');
+  const css = read('src/content.css');
+  assert.match(source, /const dateOverlay = globalThis\.WatchLaterDateOverlay/);
+  assert.match(source, /activeDates = dateOverlay\.dateMap\(items, formatPublished\)/);
+  assert.match(source, /if \(next !== 'default'\)/);
+  assert.match(source, /showPublicationDates\(\)/);
+  assert.match(source, /dateOverlay\.render\(nativeGrid, activeDates\)/);
+  assert.match(source, /dateOverlay\.clear\(nativeGrid\)/);
+  assert.match(css, /\.wl-sorter-published/);
+  assert.match(css, /bottom: 23px/);
+  assert.match(css, /pointer-events: none/);
+  assert.match(css, /position: absolute/);
+  assert.doesNotMatch(source, /createElement\('article'\)/);
 });
