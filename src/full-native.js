@@ -51,6 +51,13 @@
     }
   }
 
+  async function waitForAdvance(store, before, ms = 5000) {
+    const limit = Date.now() + ms;
+    while (getNativeItems(store).length <= before && Date.now() < limit)
+      await new Promise(resolve => setTimeout(resolve, 60));
+    return getNativeItems(store).length > before;
+  }
+
   async function materialize(store, count) {
     if (!Array.isArray(getNativeItems(store))) throw new Error('原生稍后再看列表不存在');
     if (Number.isSafeInteger(store.totalCount) && store.totalCount !== count) {
@@ -73,6 +80,10 @@
       } finally {
         clearTimeout(timer);
       }
+      // Some Bilibili actions return before their internal requests commit
+      // the next batch. Wait for the reactive array to grow, not only for
+      // the action's returned Promise.
+      await waitForAdvance(store, before);
       await awaitIdle(store);
       const after = getNativeItems(store).length;
       if (after > count) throw new Error('原生列表数量超过接口数据，停止排序');
