@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "原生稍后再看全量排序；发布时间标签下移0.1像素",
   "permissions": [
     "storage"

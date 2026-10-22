@@ -4,8 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/release.yml'
 
 permissions:
   contents: write
@@ -79,14 +77,19 @@ jobs:
           - 每次打开网页默认使用 B 站原有顺序。
           - 发布时间排序时，封面左下角显示发布日期；其他模式自动隐藏。
           - 页面加载期间提前预加载排序数据，不自动滚动或刷新。
+          - 修复删除视频后再次排序读取过期列表的问题。
 
           其他使用方式、适配范围和隐私说明请参阅仓库 README。
           NOTES
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            # Re-point the version tag to the main revision that built this ZIP.
+            gh api --method PATCH \
+              "repos/$GITHUB_REPOSITORY/git/refs/tags/$RELEASE_TAG" \
+              -f sha="$GITHUB_SHA" -F force=true >/dev/null
             gh release upload "$RELEASE_TAG" "$RELEASE_ASSET" --clobber
             gh release edit "$RELEASE_TAG" \
               --title "B站稍后再看排序 $RELEASE_VERSION" \
-              --notes-file "$RUNNER_TEMP/release-notes.md"
+              --notes-file "$RUNNER_TEMP/release-notes.md" --latest
           else
             gh release create "$RELEASE_TAG" "$RELEASE_ASSET" \
               --target "$GITHUB_SHA" \
@@ -94,5 +97,11 @@ jobs:
               --notes-file "$RUNNER_TEMP/release-notes.md" \
               --latest
           fi
+          # Publish and validate first. Then keep exactly one release and tag.
+          while IFS= read -r old_tag; do
+            if [ -n "$old_tag" ] && [ "$old_tag" != "$RELEASE_TAG" ]; then
+              gh release delete "$old_tag" --yes --cleanup-tag
+            fi
+          done < <(gh release list --limit 100 --json tagName --jq '.[].tagName')
           gh release view "$RELEASE_TAG" --json url,assets \
             --jq '{url: .url, assets: [.assets[].name]}'
