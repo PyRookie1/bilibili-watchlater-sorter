@@ -116,10 +116,24 @@ test('preload errors do not pretend the native list was sorted', async () => {
 test('native click restores last custom order and cancels extension ownership', async () => {
   const h = harness();
   await h.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
-  const node = { textContent: '最近添加', parentElement: null, closest: () => null };
+  const node = {
+    closest: () => ({ getAttribute: () => '最近添加' })
+  };
   h.window.onClick({ target: node });
   assert.equal(h.calls.length, 2);
   assert.equal(h.calls[1].native, '最近添加');
   h.window.onClick({ target: node });
   assert.equal(h.calls.length, 2, 'next native click is handled exclusively by Bilibili');
+});
+
+test('opening the native dropdown never triggers a sort reset', async () => {
+  const h = harness();
+  await h.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
+  const trigger = { closest: () => null, textContent: '最近添加' };
+  h.window.onClick({ target: trigger });
+  assert.equal(h.calls.length, 1, 'trigger click must not count as choosing native order');
+  const option = { closest: () => ({ getAttribute: () => '最早添加' }) };
+  h.window.onClick({ target: option });
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1].native, '最早添加');
 });

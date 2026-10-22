@@ -3,7 +3,8 @@
  */
 (() => {
   'use strict';
-  if (document.getElementById('wl-sorter-root')) return;
+  if (globalThis.__watchLaterSorterInstalled) return;
+  globalThis.__watchLaterSorterInstalled = true;
   const { isSortMode, formatPublished } = globalThis.WatchLaterSort;
   const dateOverlay = globalThis.WatchLaterDateOverlay;
   const CHANNEL = 'wl-sorter-bilibili-v1';
@@ -13,176 +14,195 @@
     ['duration-asc', '时长最短', '按视频时长从短到长排序'],
     ['duration-desc', '时长最长', '按视频时长从长到短排序']
   ];
-  const NATIVE_CAPTIONS = new Set(['最近添加', '最早添加']);
+  const NATIVE = new Set(['最近添加', '最早添加']);
+  const optionElements = new Map();
   let mode = null;
   let cached = null;
   let dataPromise = null;
   let cacheEpoch = 0;
   let nativeGrid = null;
-  let nativeAnchor = null;
   let preparedGrid = null;
   let scheduled = false;
   let revision = 0;
   let activeDates = null;
-
-  const root = document.createElement('div');
-  root.id = 'wl-sorter-root';
-  const buttons = new Map();
-  const error = document.createElement('span');
-  error.className = 'wl-sorter-error';
-  error.setAttribute('role', 'status');
-  error.hidden = true;
+  let triggerLabel = null;
+  let lastNativeCaption = '最近添加';
+  let errorMessage = '';
 
   function captionOf(element) {
     return element?.textContent?.replace(/[\s▼▽⌄▾∨]/g, '').trim() || '';
   }
-  function nativeCaption(target) {
-    for (let node = target; node && node !== document.documentElement; node = node.parentElement) {
-      const caption = captionOf(node);
-      if (NATIVE_CAPTIONS.has(caption)) return caption;
-      if (caption.length > 25 || node === nativeGrid) break;
-    }
-    return null;
-  }
-  function report(message = '') {
-    error.textContent = message;
-    error.title = message;
-    error.hidden = !message;
-    for (const button of buttons.values())
-      button.title = message || button.dataset.wlSorterTitle;
-  }
-  function updateButtons() {
-    for (const [value, button] of buttons) {
-      const active = value === mode;
-      button.classList.toggle('wl-sorter-active', active);
-      button.setAttribute('aria-pressed', String(active));
-    }
-  }
-  function setBusy(busy) {
-    for (const button of buttons.values()) {
-      if ('disabled' in button) button.disabled = busy;
-      button.setAttribute('aria-disabled', String(busy));
-      button.classList.toggle('wl-sorter-busy', busy);
-    }
+  function isVisible(element) {
+    const rect = element?.getBoundingClientRect?.();
+    return !!rect && rect.width > 0 && rect.height > 0;
   }
   function isListPage() {
     return /^\/(?:watchlater(?:\/list)?|list\/watchlater)\/?$/.test(location.pathname) &&
       (!location.hash || /^#\/list(?:[/?#]|$)/.test(location.hash));
   }
-  function findAnchor(grid) {
-    const y = grid.getBoundingClientRect().top;
-    const matches = [];
+  // Find two *menu options* sharing one parent, never the dropdown trigger.
+  function findNativeMenu() {
+    const candidates = [];
     const seen = new Set();
-    for (const element of document.querySelectorAll('button, [role="button"], [class*="sort"], span, div, li')) {
-      if (root.contains(element) || !NATIVE_CAPTIONS.has(captionOf(element))) continue;
-      const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height || rect.top > y || y - rect.bottom > 220) continue;
-      let control = element;
-      for (let parent = control.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
-        if (parent.contains(grid) || captionOf(parent) !== captionOf(element)) break;
-        if (parent.getBoundingClientRect().width > 280) break;
-        control = parent;
+    for (const element of document.querySelectorAll('li, button, [role="option"], [role="menuitem"], span, div')) {
+      if (element.closest('[data-wl-sorter-option]')) continue;
+      const caption = captionOf(element);
+      if (!NATIVE.has(caption) || !isVisible(element)) continue;
+      let row = element;
+      while (row.parentElement && row.parentElement !== document.body &&
+             captionOf(row.parentElement) === caption &&
+             row.parentElement.getBoundingClientRect().width < 320) {
+        row = row.parentElement;
       }
-      if (!seen.has(control)) {
-        seen.add(control);
-        matches.push({ control, caption: captionOf(element) });
+      if (row.parentElement && !seen.has(row)) {
+        seen.add(row);
+        candidates.push({ row, caption });
       }
     }
-    const recent = matches.find(item => item.caption === '最近添加');
-    const oldest = matches.find(item => item.caption === '最早添加');
-    if (recent && oldest && recent.control.parentElement === oldest.control.parentElement)
-      return recent.control.compareDocumentPosition(oldest.control) & Node.DOCUMENT_POSITION_FOLLOWING
-        ? oldest.control : recent.control;
-    return recent?.control || oldest?.control || null;
+    let best = null;
+    for (const recent of candidates.filter(item => item.caption === '最近添加')) {
+      for (const oldest of candidates.filter(item => item.caption === '最早添加')) {
+        if (recent.row === oldest.row || recent.row.parentElement !== oldest.row.parentElement)
+          continue;
+        const menu = recent.row.parentElement;
+        if (menu.contains(nativeGrid)) continue;
+        const labels = [...menu.children].filter(child => NATIVE.has(captionOf(child)));
+        if (labels.length < 2) continue;
+        // Prefer real dropdown/listbox structures if both menu items and
+        // the current selected-value label are present elsewhere on the page.
+        const names = String(menu.className || '') + ' ' +
+          String(menu.parentElement?.className || '');
+        const score = (/dropdown|popper|select|menu|sort/i.test(names) ? 10 : 0) +
+          (['LI'].includes(recent.row.tagName) ? 4 : 0) +
+          (menu.matches?.('[role="listbox"],[role="menu"]') ? 4 : 0);
+        if (!best || score > best.score)
+          best = { menu, recent: recent.row, oldest: oldest.row, score };
+      }
+    }
+    return best;
   }
-  function cloneButton(template, caption, value, title) {
-    const button = template ? template.cloneNode(true) : document.createElement('button');
-    const oldCaption = captionOf(template);
-    const elements = [button, ...button.querySelectorAll('*')];
-    for (const element of elements) {
-      element.removeAttribute('id');
-      element.removeAttribute('href');
-      element.removeAttribute('aria-selected');
-      element.removeAttribute('aria-expanded');
-      element.removeAttribute('aria-haspopup');
-      element.removeAttribute('aria-checked');
-      element.removeAttribute('disabled');
-      element.classList?.remove('active', 'selected', 'is-active', 'on');
-      for (const attr of [...element.attributes])
-        if (/^on/i.test(attr.name)) element.removeAttribute(attr.name);
+  function findTriggerLabel(menu) {
+    if (triggerLabel?.isConnected && !menu.contains(triggerLabel))
+      return triggerLabel;
+    if (!nativeGrid) return null;
+    const gridTop = nativeGrid.getBoundingClientRect().top;
+    const possible = [...document.querySelectorAll('span, button, div')]
+      .filter(node => !menu.contains(node) &&
+        NATIVE.has(captionOf(node)) && isVisible(node) &&
+        node.getBoundingClientRect().top <= gridTop + 30 &&
+        gridTop - node.getBoundingClientRect().top < 250);
+    const leaf = possible.filter(node => ![...node.children].some(child => captionOf(child) === captionOf(node)));
+    leaf.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
+    triggerLabel = leaf[0] || null;
+    if (triggerLabel) lastNativeCaption = captionOf(triggerLabel);
+    return triggerLabel;
+  }
+  function syncTrigger(menu) {
+    const label = findTriggerLabel(menu);
+    if (!label) return;
+    const value = OPTIONS.find(option => option[0] === mode)?.[1];
+    if (value && captionOf(label) !== value) label.textContent = value;
+  }
+  function clearInjectedOptions() {
+    for (const option of optionElements.values()) option.remove();
+    optionElements.clear();
+    triggerLabel = null;
+  }
+  function cloneMenuOption(nativeOption, value, caption, title) {
+    const option = nativeOption.cloneNode(true);
+    const nodes = [option, ...option.querySelectorAll('*')];
+    const previous = captionOf(nativeOption);
+    const labelNode = nodes.filter(node => captionOf(node) === previous).at(-1) || option;
+    labelNode.textContent = caption;
+    for (const node of nodes) {
+      node.removeAttribute('id');
+      node.removeAttribute('href');
+      node.removeAttribute('aria-selected');
+      node.removeAttribute('aria-checked');
+      node.removeAttribute('aria-disabled');
+      node.removeAttribute('disabled');
+      node.removeAttribute('data-wl-sorter-native-option');
+      node.classList?.remove('active', 'selected', 'is-active', 'on', 'checked');
+      for (const attr of [...node.attributes])
+        if (/^on/i.test(attr.name)) node.removeAttribute(attr.name);
     }
-    const textTarget = elements.filter(node => captionOf(node) === oldCaption).at(-1) || button;
-    textTarget.textContent = caption;
-    button.classList.add('wl-sorter-button');
-    button.dataset.wlSorterMode = value;
-    button.dataset.wlSorterTitle = title;
-    button.title = title;
-    button.setAttribute('role', 'button');
-    button.setAttribute('aria-label', title);
-    button.setAttribute('aria-pressed', 'false');
-    button.tabIndex = 0;
-    if (button.tagName === 'BUTTON') button.type = 'button';
-    button.addEventListener('click', event => {
+    option.dataset.wlSorterOption = value;
+    option.title = title;
+    option.addEventListener('click', event => {
       event.preventDefault();
-      event.stopPropagation();
-      if (button.getAttribute('aria-disabled') === 'true') return;
+      event.stopPropagation(); // Do not call Bilibili's native sort handler.
       void choose(value);
+      // Let the native dropdown's outside-click handler close the menu.
+      document.documentElement.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      document.documentElement.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    if (button.tagName !== 'BUTTON') {
-      button.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          button.click();
-        }
-      });
+    return option;
+  }
+  function report(message = '') {
+    errorMessage = message;
+    for (const [value, option] of optionElements) {
+      const title = OPTIONS.find(item => item[0] === value)?.[2];
+      option.title = message || title;
     }
-    return button;
+    if (message) console.error('[稍后再看排序] ' + message);
   }
   function mount() {
     const grid = isListPage() ? document.querySelector('.watchlater-list-container') : null;
     if (grid !== nativeGrid) {
       dateOverlay.clear(nativeGrid);
+      clearInjectedOptions();
       activeDates = null;
       revision++;
       mode = null;
       nativeGrid = grid;
-      nativeAnchor = null;
       preparedGrid = null;
-      root.remove();
     }
-    if (!grid) { root.remove(); return false; }
-    const anchor = findAnchor(grid);
-    if (!root.isConnected || anchor !== nativeAnchor) {
-      const host = anchor?.parentElement || grid.parentElement;
-      if (!host) return false;
-      root.remove();
-      root.replaceChildren();
-      buttons.clear();
+    if (!grid) return false;
+    const found = findNativeMenu();
+    if (found) {
+      const { menu, recent, oldest } = found;
+      if (recent.dataset.wlSorterNativeOption !== '最近添加')
+        recent.dataset.wlSorterNativeOption = '最近添加';
+      if (oldest.dataset.wlSorterNativeOption !== '最早添加')
+        oldest.dataset.wlSorterNativeOption = '最早添加';
+      findTriggerLabel(menu);
+      let after = oldest;
       for (const [value, caption, title] of OPTIONS) {
-        const button = cloneButton(anchor, caption, value, title);
-        buttons.set(value, button);
-        root.append(button);
+        let option = optionElements.get(value);
+        if (!option || option.parentElement !== menu) {
+          option?.remove();
+          option = cloneMenuOption(oldest, value, caption, title);
+          optionElements.set(value, option);
+        }
+        if (after.nextSibling !== option) menu.insertBefore(option, after.nextSibling);
+        after = option;
       }
-      root.append(error);
-      root.dataset.placement = anchor ? 'inline' : 'fallback';
-      if (anchor) host.insertBefore(root, anchor.nextSibling);
-      else host.insertBefore(root, grid);
-      nativeAnchor = anchor;
-      updateButtons();
+      syncTrigger(menu);
+      if (errorMessage) report(errorMessage);
     }
     return true;
   }
+  // Native options keep their original Vue event handlers and functionality.
   function returnToNative(event) {
-    if (!nativeGrid || root.contains(event.target) || !nativeCaption(event.target)) return;
+    const row = event.target?.closest?.('[data-wl-sorter-native-option]');
+    if (!row || !nativeGrid) return;
     revision++;
     mode = null;
     activeDates = null;
+    lastNativeCaption = row.dataset.wlSorterNativeOption;
+    if (triggerLabel?.isConnected) triggerLabel.textContent = lastNativeCaption;
     dateOverlay.clear(nativeGrid);
     report('');
-    updateButtons();
-    setBusy(false);
   }
   document.addEventListener('click', returnToNative, true);
+  // Mark options before click even when Bilibili mounts a popup on hover
+  // or just before pointerdown, with no existing menu DOM at page load.
+  document.addEventListener('pointerdown', () => {
+    if (isListPage()) mount();
+  }, true);
+  document.addEventListener('mouseover', event => {
+    if (NATIVE.has(captionOf(event.target))) schedule();
+  }, true);
 
   function requestPage(type, fields = {}, timeoutMs = 12000) {
     return new Promise(resolve => {
@@ -258,15 +278,17 @@
     if (nativeGrid && activeDates) dateOverlay.render(nativeGrid, activeDates);
   }
   async function choose(next) {
-    if (!isSortMode(next)) return;
+    if (!OPTIONS.some(option => option[0] === next) || !isSortMode(next)) return;
     const current = ++revision;
     mode = next;
-    updateButtons();
+    if (nativeGrid) {
+      const found = findNativeMenu();
+      if (found) syncTrigger(found.menu);
+    }
     activeDates = null;
     dateOverlay.clear(nativeGrid);
     report('');
-    // No stored preference: refreshing always opens in the Bilibili default mode.
-    setBusy(true);
+    // No persistent preference: a refresh retains Bilibili's native order.
     try {
       if (!mount()) throw new Error('未找到 B站稍后再看原生列表');
       beginPreload();
@@ -280,19 +302,22 @@
         activeDates = dateOverlay.dateMap(items, formatPublished);
         showPublicationDates();
       }
-      for (const button of buttons.values()) button.title = '已排序全部 ' + result.count + ' 条视频';
+      // Keep Bilibili's own select and menu styling unchanged.
     } catch (reason) {
       if (current !== revision) return;
       cached = null;
       mode = null;
-      updateButtons();
+      if (triggerLabel?.isConnected) triggerLabel.textContent = lastNativeCaption;
       report('全量排序失败：' + (reason?.message || reason));
     } finally {
-      if (current === revision) setBusy(false);
+      if (current === revision) schedule();
     }
   }
   chrome.runtime.onMessage.addListener(message => {
-    if (message?.type === 'WL_SORTER_OPEN' && root.isConnected) buttons.values().next().value?.focus();
+    if (message?.type === 'WL_SORTER_OPEN') {
+      const first = optionElements.values().next().value;
+      (first || triggerLabel)?.focus?.();
+    }
   });
   function schedule() {
     if (scheduled) return;
@@ -308,8 +333,16 @@
   window.addEventListener('hashchange', schedule);
   window.addEventListener('popstate', schedule);
   new MutationObserver(records => {
-    if (records.some(record => !root.contains(record.target) &&
-      [...record.addedNodes, ...record.removedNodes].some(node => node !== root))) schedule();
-  }).observe(document.documentElement, { childList: true, subtree: true });
+    if (records.some(record => {
+      if (record.type === 'attributes')
+        return !record.target.closest?.('[data-wl-sorter-option]') &&
+          record.attributeName !== 'data-wl-sorter-native-option';
+      return [...record.addedNodes, ...record.removedNodes].some(node =>
+        node.nodeType === 1 && !node.hasAttribute?.('data-wl-sorter-option'));
+    })) schedule();
+  }).observe(document.documentElement, {
+    childList: true, subtree: true, attributes: true,
+    attributeFilter: ['class', 'style', 'data-wl-sorter-native-option']
+  });
   schedule();
 })();

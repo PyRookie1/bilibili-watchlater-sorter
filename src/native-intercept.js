@@ -10,22 +10,12 @@
   let nativeEpoch = 0;
   let lastCustomItems = null;
   let customActive = false;
-  const nativeCaptions = new Set(['最近添加', '最早添加']);
-
-  function nativeCaption(target) {
-    for (let node = target; node && node !== document.documentElement; node = node.parentElement) {
-      if (node.closest?.('#wl-sorter-root')) return null;
-      const caption = node.textContent?.replace(/[\s▼▽⌄▾∨]/g, '').trim() || '';
-      if (nativeCaptions.has(caption)) return caption;
-      if (caption.length > 25) break;
-    }
-    return null;
-  }
-  // Capture before Vue's native click handler, including a click on
-  // the already-selected native option.
+  // The content script marks the actual dropdown entries. Never treat the
+  // current-value trigger as a native option when the menu is merely opened.
   window.addEventListener('click', event => {
-    const caption = nativeCaption(event.target);
-    if (!caption) return;
+    const option = event.target?.closest?.('[data-wl-sorter-native-option]');
+    const caption = option?.getAttribute('data-wl-sorter-native-option');
+    if (caption !== '最近添加' && caption !== '最早添加') return;
     nativeEpoch++;
     if (!customActive) return;
     customActive = false;
@@ -34,7 +24,7 @@
     try {
       FULL.restoreNativeOrder(store, lastCustomItems, caption, MODES.sortVideos);
     } catch {
-      // Keep Bilibili's original click handler responsible for changed lists.
+      // Native Bilibili handlers still process this click without interference.
     }
   }, true);
 
