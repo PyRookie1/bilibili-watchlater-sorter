@@ -43,6 +43,12 @@
     return store?.watchlaterList;
   }
 
+  function staleMetadata(message) {
+    const error = new Error(message);
+    error.code = 'WL_SORTER_STALE_METADATA';
+    return error;
+  }
+
   async function awaitIdle(store, ms = 9000) {
     const deadline = Date.now() + ms;
     while (store.loading) {
@@ -78,7 +84,7 @@
     // Exact identity agreement is enough; never load deleted videos again.
     if (ids && hasExactIds(store, ids)) return;
     if (Number.isSafeInteger(store.totalCount) && store.totalCount !== count) {
-      throw new Error('当前筛选列表数量与全部视频数不同，请先恢复全部列表');
+      throw staleMetadata('当前筛选列表数量与全部视频数不同，请先恢复全部列表');
     }
     const maxCalls = Math.min(100, Math.ceil(Math.max(0, count - getNativeItems(store).length) / 20) + 8);
     let stalled = 0;
@@ -111,7 +117,7 @@
     if (size !== count)
       throw new Error('原生列表只加载到 ' + size + '/' + count + '，未执行局部排序');
     if (ids && !hasExactIds(store, ids))
-      throw new Error('原生视频与接口完整列表无法一一匹配');
+      throw staleMetadata('原生视频与接口完整列表无法一一匹配');
   }
 
   async function prepare(store) {
@@ -149,7 +155,7 @@
     const newIndices = sortedRaw.map(item => indexById.get(identity(item)));
     if (newIndices.some(index => index === undefined) ||
         new Set(newIndices).size !== raw.length)
-      throw new Error('原生视频与接口完整列表无法一一匹配');
+      throw staleMetadata('原生视频与接口完整列表无法一一匹配');
     const next = newIndices.map(index => records[index]);
     const checked = store.checkedList;
     const alignChecked = Array.isArray(checked) && checked.length === records.length;

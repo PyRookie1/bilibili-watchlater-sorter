@@ -8,7 +8,7 @@ const src = fs.readFileSync(path.join(__dirname, '../src/native-intercept.js'), 
 const channel = 'wl-sorter-bilibili-v1';
 const id = '123e4567-e89b-12d3-a456-426614174000';
 
-function harness({ failure = null } = {}) {
+function harness({ failure = null, failureCode = null } = {}) {
   const posted = [];
   let onMessage;
   const window = {
@@ -37,7 +37,11 @@ function harness({ failure = null } = {}) {
     async sortFull(store, raw, mode, sortVideos, isCurrent) {
       if (!isCurrent()) throw Error('cancelled');
       calls.push({ store, raw, mode });
-      if (failure) throw Error(failure);
+      if (failure) {
+        const error = Error(failure);
+        error.code = failureCode;
+        throw error;
+      }
       return { ok: true, count: raw.length };
     }
   };
@@ -136,4 +140,14 @@ test('opening the native dropdown never triggers a sort reset', async () => {
   h.window.onClick({ target: option });
   assert.equal(h.calls.length, 2);
   assert.equal(h.calls[1].native, '最早添加');
+});
+
+test('stale snapshot errors are explicitly retryable; ordinary errors are not', async () => {
+  const outdated = harness({ failure: '原生视频与接口完整列表无法一一匹配',
+    failureCode: 'WL_SORTER_STALE_METADATA' });
+  await outdated.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
+  assert.equal(outdated.posted[0].staleMetadata, true);
+  const failure = harness({ failure: 'B站原生列表加载超时' });
+  await failure.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
+  assert.equal(failure.posted[0].staleMetadata, false);
 });

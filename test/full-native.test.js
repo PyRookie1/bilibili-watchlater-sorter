@@ -235,3 +235,27 @@ test('stale extension sort is cancelled before applying after native click', asy
     /已切换至 B站原生排序/);
   assert.deepEqual(mock.state.watchlaterList.map(v => v.aid), raw.map(v => v.aid));
 });
+
+test('stale preloaded count is identified before fetching more native pages', async () => {
+  const raw = rawVideos(60);
+  const mock = storeFor(raw, 20);
+  mock.state.totalCount = 59;
+  await assert.rejects(
+    native.sortFull(mock.store, raw, 'published-desc', sortVideos),
+    err => err.code === 'WL_SORTER_STALE_METADATA' && /筛选列表数量/.test(err.message)
+  );
+  assert.equal(mock.loads, 0);
+});
+
+test('equal-count identity replacement signals a refresh rather than applying stale sort', async () => {
+  const raw = rawVideos(20);
+  const mock = storeFor(raw, 20);
+  const current = raw.slice(1).concat({
+    aid: 21, bvid: 'BV0000000021', pubdate: 80000, duration: 5
+  });
+  await assert.rejects(
+    native.sortFull(mock.store, current, 'published-desc', sortVideos),
+    err => err.code === 'WL_SORTER_STALE_METADATA' && /无法一一匹配/.test(err.message)
+  );
+  assert.deepEqual(mock.state.watchlaterList.map(x => x.aid), raw.map(x => x.aid));
+});

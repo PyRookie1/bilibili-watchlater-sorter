@@ -292,10 +292,20 @@
     try {
       if (!mount()) throw new Error('未找到 B站稍后再看原生列表');
       beginPreload();
-      const items = await fullData(true);
+      // Use the document_start snapshot first; avoid a duplicate network round-trip.
+      // The MAIN-world sorter verifies exact native identities before reordering.
+      let items = await fullData();
       if (current !== revision) return;
-      const result = await requestPage('SET_MODE', { mode: next, items }, 120000);
+      let result = await requestPage('SET_MODE', { mode: next, items }, 120000);
       if (current !== revision) return;
+      if (!result?.ok && result?.staleMetadata === true) {
+        // Additions/deletions can invalidate the earlier snapshot. Fetch once
+        // again only when the native store proves that it is out of date.
+        items = await fullData(true);
+        if (current !== revision) return;
+        result = await requestPage('SET_MODE', { mode: next, items }, 120000);
+        if (current !== revision) return;
+      }
       if (!result?.ok)
         throw new Error(result?.error || '原生列表排序超时或页面脚本未响应');
       if (next === 'published-asc' || next === 'published-desc') {
@@ -305,6 +315,7 @@
       // Keep Bilibili's own select and menu styling unchanged.
     } catch (reason) {
       if (current !== revision) return;
+      cacheEpoch++;
       cached = null;
       mode = null;
       if (triggerLabel?.isConnected) triggerLabel.textContent = lastNativeCaption;

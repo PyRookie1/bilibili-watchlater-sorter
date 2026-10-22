@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.12 prefetches data at document_start before UI arrives', () => {
+test('v0.8.13 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.12');
+  assert.equal(manifest.version, '0.8.13');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -130,10 +130,17 @@ test('publication labels inherit native video progress/time typography where ava
   assert.doesNotMatch(read('src/content.css'), /font:\s*11px\/16px/);
 });
 
-test('each requested sort fetches fresh metadata, skipping document_start preload', () => {
+test('first selection reuses early metadata; only stale native identities trigger refresh', () => {
   const source = read('src/content.js');
-  assert.match(source, /const items = await fullData\(true\)/);
+  const native = read('src/full-native.js');
+  const bridge = read('src/native-intercept.js');
+  assert.match(source, /let items = await fullData\(\)/);
+  assert.match(source, /if \(!result\?\.ok && result\?\.staleMetadata === true\)/);
+  assert.match(source, /items = await fullData\(true\)/);
   assert.match(source, /return fetchFullData\(false\)\.then/);
   assert.match(source, /if \(allowEarly\)/);
   assert.match(source, /if \(epoch === cacheEpoch\) cached = items/);
+  assert.match(native, /WL_SORTER_STALE_METADATA/);
+  assert.match(bridge, /staleMetadata: error\?\.code === 'WL_SORTER_STALE_METADATA'/);
+  assert.doesNotMatch(source, /const items = await fullData\(true\)/);
 });

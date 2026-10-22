@@ -56,7 +56,11 @@
           }
         }
       } catch (error) {
-        result = { ok: false, error: String(error?.message || error) };
+        result = {
+          ok: false,
+          error: String(error?.message || error),
+          staleMetadata: error?.code === 'WL_SORTER_STALE_METADATA'
+        };
       }
       window.postMessage({
         channel: CHANNEL,
