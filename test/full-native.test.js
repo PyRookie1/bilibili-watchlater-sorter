@@ -95,8 +95,12 @@ test('rejects filtered lists and raw/native identity mismatches safely', async (
   const raw = rawVideos();
   const mock = storeFor(raw, 424);
   mock.state.totalCount = 20;
+  mock.state.watchlaterList = mock.state.watchlaterList.slice(0, 20);
+  mock.state.checkedList = mock.state.checkedList.slice(0, 20);
   await assert.rejects(native.sortFull(mock.store, raw, 'published-desc', sortVideos), /筛选/);
   mock.state.totalCount = 424;
+  mock.state.watchlaterList = mock.allCards.slice();
+  mock.state.checkedList = mock.allCards.map(x => ({ aid: x.aid }));
   mock.state.watchlaterList[3].bvid = 'BV0000009999';
   await assert.rejects(native.sortFull(mock.store, raw, 'published-desc', sortVideos), /无法一一匹配/);
   assert.equal(mock.state.watchlaterList[0].aid, 1);
@@ -150,4 +154,55 @@ test('PREPARE waits for delayed initial native Pinia state without touching orde
   assert.equal(mock.state.watchlaterList.length, 60);
   assert.equal(mock.state.watchlaterList[0].aid, 1);
   assert.equal(mock.loads, 2);
+});
+
+test('sort after deleting videos uses the updated native identities', async () => {
+  const raw = rawVideos(60);
+  const mock = storeFor(raw, 60);
+  await native.sortFull(mock.store, raw, 'duration-asc', sortVideos);
+  const deleted = new Set([3, 15, 26, 48, 60]);
+  const records = mock.state.watchlaterList;
+  const checked = mock.state.checkedList;
+  for (let i = records.length - 1; i >= 0; i--) {
+    if (deleted.has(records[i].aid)) {
+      records.splice(i, 1);
+      checked.splice(i, 1);
+    }
+  }
+  // The count can still be stale while Bilibili updates its reactive list.
+  assert.equal(mock.store.totalCount, 60);
+  const remaining = raw.filter(v => !deleted.has(v.aid));
+  const previousLoads = mock.loads;
+  const result = await native.sortFull(mock.store, remaining, 'published-desc', sortVideos);
+  assert.deepEqual(result, { ok: true, count: 55 });
+  assert.equal(mock.loads, previousLoads, 'do not attempt to reload deleted videos');
+  assert.deepEqual(records.map(v => v.aid), remaining.map(v => v.aid).reverse());
+  assert.deepEqual(checked.map(v => v.aid), records.map(v => v.aid));
+});
+
+test('sort after deleting all videos supports an empty list', async () => {
+  const raw = rawVideos(20);
+  const mock = storeFor(raw, 20);
+  mock.state.watchlaterList.splice(0);
+  mock.state.checkedList.splice(0);
+  const result = await native.sortFull(mock.store, [], 'duration-asc', sortVideos);
+  assert.deepEqual(result, { ok: true, count: 0 });
+  assert.equal(mock.loads, 0);
+});
+
+test('unchanged count cannot mask a deleted-and-added video', async () => {
+  const raw = rawVideos(20);
+  const mock = storeFor(raw, 20);
+  const current = raw.slice(1).concat({ aid: 21, bvid: 'BV0000000021', pubdate: 55, duration: 42 });
+  await assert.rejects(native.sortFull(mock.store, current, 'duration-asc', sortVideos), /无法一一匹配/);
+  assert.deepEqual(mock.state.watchlaterList.map(v => v.aid), raw.map(v => v.aid));
+});
+
+test('matching identities are enough when native totalCount is stale', async () => {
+  const raw = rawVideos(20);
+  const mock = storeFor(raw, 20);
+  mock.state.totalCount = 23;
+  const result = await native.sortFull(mock.store, raw, 'published-desc', sortVideos);
+  assert.equal(result.count, 20);
+  assert.equal(mock.state.watchlaterList[0].aid, 20);
 });

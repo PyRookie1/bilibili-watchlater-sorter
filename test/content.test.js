@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.8 prefetches data at document_start before UI arrives', () => {
+test('v0.8.9 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.8');
+  assert.equal(manifest.version, '0.8.9');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -65,7 +65,7 @@ test('selection only succeeds on complete native Pinia state', () => {
   const native = read('src/full-native.js');
   assert.match(content, /if \(!result\?\.ok\)/);
   assert.match(content, /全量排序失败：/);
-  assert.match(native, /await materialize\(store, raw\.length\)/);
+  assert.match(native, /await materialize\(store, raw\)/);
   assert.match(native, /原生列表只加载到/);
   assert.match(native, /原生视频与接口完整列表无法一一匹配/);
 });
@@ -106,4 +106,12 @@ test('publication labels inherit native video progress/time typography where ava
   assert.match(overlay, /badge\.style\.fontSize = font\.fontSize/);
   assert.match(overlay, /matchNativeTimeFont\(card, host, badge\)/);
   assert.doesNotMatch(read('src/content.css'), /font:\s*11px\/16px/);
+});
+
+test('each requested sort fetches fresh metadata, skipping document_start preload', () => {
+  const source = read('src/content.js');
+  assert.match(source, /const items = await fullData\(true\)/);
+  assert.match(source, /return fetchFullData\(false\)\.then/);
+  assert.match(source, /if \(allowEarly\)/);
+  assert.match(source, /if \(epoch === cacheEpoch\) cached = items/);
 });

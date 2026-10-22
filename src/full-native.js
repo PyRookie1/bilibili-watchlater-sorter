@@ -31,7 +31,7 @@
   }
 
   function assertMetadata(items) {
-    if (!Array.isArray(items) || items.length < 1 || items.length > MAX_ITEMS)
+    if (!Array.isArray(items) || items.length > MAX_ITEMS)
       throw new Error('完整视频列表不存在');
     const ids = items.map(identity);
     if (ids.some(id => !id) || new Set(ids).size !== ids.length)
@@ -58,8 +58,25 @@
     return getNativeItems(store).length > before;
   }
 
-  async function materialize(store, count) {
+  function hasExactIds(store, ids) {
+    const records = getNativeItems(store);
+    if (!Array.isArray(records) || records.length !== ids.length) return false;
+    const remaining = new Set(ids);
+    for (const record of records) {
+      if (!remaining.delete(identity(record))) return false;
+    }
+    return remaining.size === 0;
+  }
+
+  async function materialize(store, expected) {
+    const ids = Array.isArray(expected) ? assertMetadata(expected) : null;
+    const count = ids ? ids.length : expected;
+    if (!Number.isSafeInteger(count) || count < 0 || count > MAX_ITEMS)
+      throw new Error('原生列表数量无效');
     if (!Array.isArray(getNativeItems(store))) throw new Error('原生稍后再看列表不存在');
+    // After deletion Bilibili may update the cards before totalCount.
+    // Exact identity agreement is enough; never load deleted videos again.
+    if (ids && hasExactIds(store, ids)) return;
     if (Number.isSafeInteger(store.totalCount) && store.totalCount !== count) {
       throw new Error('当前筛选列表数量与全部视频数不同，请先恢复全部列表');
     }
@@ -93,6 +110,8 @@
     const size = getNativeItems(store).length;
     if (size !== count)
       throw new Error('原生列表只加载到 ' + size + '/' + count + '，未执行局部排序');
+    if (ids && !hasExactIds(store, ids))
+      throw new Error('原生视频与接口完整列表无法一一匹配');
   }
 
   async function prepare(store) {
@@ -101,8 +120,9 @@
     // while that initial load is incomplete.
     const deadline = Date.now() + 20000;
     while (store?.inited === false || store?.loading ||
-      !Number.isSafeInteger(store?.totalCount) || store.totalCount <= 0 ||
-      !Array.isArray(store.watchlaterList) || store.watchlaterList.length === 0) {
+      !Number.isSafeInteger(store?.totalCount) ||
+      !Array.isArray(store.watchlaterList) ||
+      (store.totalCount > 0 && store.watchlaterList.length === 0)) {
       if (Date.now() > deadline) throw new Error('B站原生列表初始化超时');
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -151,7 +171,7 @@
 
   async function sortFull(store, raw, mode, sortVideos) {
     assertMetadata(raw);
-    await materialize(store, raw.length);
+    await materialize(store, raw);
     const count = applyOrder(store, raw, mode, sortVideos);
     return { ok: true, count };
   }

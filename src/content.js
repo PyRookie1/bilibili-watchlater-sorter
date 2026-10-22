@@ -17,6 +17,7 @@
   let mode = 'default';
   let cached = null;
   let dataPromise = null;
+  let cacheEpoch = 0;
   let nativeGrid = null;
   let preparedGrid = null;
   let scheduled = false;
@@ -109,9 +110,11 @@
     return result?.ok && Array.isArray(result.items) &&
       Number.isSafeInteger(result.count) && result.count === result.items.length;
   }
-  async function fetchFullData() {
-    const early = await (globalThis.WatchLaterEarlyDataPromise || Promise.resolve(null));
-    if (complete(early)) return early.items;
+  async function fetchFullData(allowEarly = true) {
+    if (allowEarly) {
+      const early = await (globalThis.WatchLaterEarlyDataPromise || Promise.resolve(null));
+      if (complete(early)) return early.items;
+    }
     let backgroundError = '后台没有返回完整列表';
     try {
       const data = await chrome.runtime.sendMessage({ type: 'WL_SORTER_FETCH' });
@@ -125,11 +128,22 @@
     throw new Error(backgroundError + '；备用接口：' +
       (fallback?.payload?.error || '没有返回完整列表'));
   }
-  function fullData() {
+  function fullData(fresh = false) {
+    if (fresh) {
+      // Sorting must use a current API snapshot, not document_start data.
+      const epoch = ++cacheEpoch;
+      cached = null;
+      return fetchFullData(false).then(items => {
+        if (epoch === cacheEpoch) cached = items;
+        return items;
+      });
+    }
     if (cached) return Promise.resolve(cached);
     if (!dataPromise) {
-      dataPromise = fetchFullData().then(items => {
-        cached = items;
+      const epoch = cacheEpoch;
+      dataPromise = fetchFullData(true).then(items => {
+        // Late prefetch responses must not overwrite newer snapshots.
+        if (epoch === cacheEpoch) cached = items;
         return items;
       }).finally(() => { dataPromise = null; });
     }
@@ -159,7 +173,7 @@
     try {
       if (!mount()) throw new Error('未找到 B站稍后再看原生列表');
       beginPreload();
-      const items = await fullData();
+      const items = await fullData(true);
       const result = await requestPage('SET_MODE', { mode: next, items }, 120000);
       if (current !== revision) return;
       if (!result?.ok)
