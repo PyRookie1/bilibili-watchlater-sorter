@@ -11,8 +11,8 @@
   const OPTIONS = [
     ['published-desc', '最新发布', '按发布时间从新到旧排序'],
     ['published-asc', '最早发布', '按发布时间从旧到新排序'],
-    ['duration-asc', '时长最短', '按视频时长从短到长排序'],
-    ['duration-desc', '时长最长', '按视频时长从长到短排序']
+    ['duration-desc', '时长最长', '按视频时长从长到短排序'],
+    ['duration-asc', '时长最短', '按视频时长从短到长排序']
   ];
   const NATIVE = new Set(['最近添加', '最早添加']);
   const optionElements = new Map();

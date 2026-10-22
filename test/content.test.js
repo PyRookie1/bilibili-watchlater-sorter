@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.11 prefetches data at document_start before UI arrives', () => {
+test('v0.8.12 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.11');
+  assert.equal(manifest.version, '0.8.12');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -42,6 +42,19 @@ test('the original native dropdown receives the four extra menu entries', () => 
   assert.doesNotMatch(css, /#wl-sorter-root|wl-sorter-button|wl-sorter-select/);
   assert.match(css, /\.wl-sorter-published/);
   assert.doesNotMatch(content, /localStorage\.getItem|localStorage\.setItem|wl-sorter-mode/);
+});
+
+test('native dropdown retains requested six-item order without replacing native controls', () => {
+  const content = read('src/content.js');
+  const matches = [...content.matchAll(/\['(published-(?:desc|asc)|duration-(?:desc|asc))',\s*'([^']+)'/g)];
+  assert.deepEqual(matches.map(([, mode, label]) => [mode, label]), [
+    ['published-desc', '最新发布'],
+    ['published-asc', '最早发布'],
+    ['duration-desc', '时长最长'],
+    ['duration-asc', '时长最短']
+  ]);
+  assert.match(content, /let after = oldest/);
+  assert.match(content, /menu\.insertBefore\(option, after\.nextSibling\)/);
 });
 
 test('preload begins silently on page mount and metadata is reused on selection', () => {
