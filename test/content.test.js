@@ -87,7 +87,7 @@ test('selection only succeeds on complete native Pinia state', () => {
   const native = read('src/full-native.js');
   assert.match(content, /if \(!result\?\.ok\)/);
   assert.match(content, /全量排序失败：/);
-  assert.match(native, /await materialize\(store, raw\)/);
+  assert.match(native, /await materialize\(store, raw, isCurrent\)/);
   assert.match(native, /原生列表只加载到/);
   assert.match(native, /原生视频与接口完整列表无法一一匹配/);
 });
@@ -138,7 +138,7 @@ test('first selection reuses early metadata; only stale native identities trigge
   assert.match(source, /if \(!result\?\.ok && result\?\.staleMetadata === true\)/);
   assert.match(source, /items = await fullData\(true\)/);
   assert.match(source, /return fetchFullData\(false\)\.then/);
-  assert.match(source, /if \(allowEarly\)/);
+  assert.match(source, /if \(allowEarly && globalThis\.WatchLaterEarlyDataPromise\)/);
   assert.match(source, /if \(epoch === cacheEpoch\) cached = items/);
   assert.match(native, /WL_SORTER_STALE_METADATA/);
   assert.match(bridge, /staleMetadata: error\?\.code === 'WL_SORTER_STALE_METADATA'/);
