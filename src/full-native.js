@@ -74,6 +74,21 @@
     return remaining.size === 0;
   }
 
+  // Experimental B: only opt in when the native Store exposes an explicit,
+  // writable page-size field. Never change an unknown cursor or offset.
+  function nativePageSizeKnob(store) {
+    for (const key of ['pageSize', 'page_size', 'ps']) {
+      if (!Object.prototype.hasOwnProperty.call(store, key)) continue;
+      const value = store[key];
+      if (!Number.isSafeInteger(value) || value < 10 || value > 50) continue;
+      try {
+        store[key] = value;
+        if (store[key] === value) return { key, original: value };
+      } catch {}
+    }
+    return null;
+  }
+
   async function materialize(store, expected, isCurrent = () => true) {
     const ids = Array.isArray(expected) ? assertMetadata(expected) : null;
     const count = ids ? ids.length : expected;
@@ -88,6 +103,9 @@
     }
     const maxCalls = Math.min(100, Math.ceil(Math.max(0, count - getNativeItems(store).length) / 20) + 8);
     let stalled = 0;
+    const knob = nativePageSizeKnob(store);
+    let largePagesEnabled = !!knob;
+    if (!knob) console.info('[稍后再看排序/B] 原生 Store 无已知页大小字段，使用默认分页');
     for (let call = 0; getNativeItems(store).length < count && call < maxCalls; call++) {
       if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
       await awaitIdle(store);
@@ -95,6 +113,15 @@
       const before = getNativeItems(store).length;
       if (before >= count) break;
       let timer;
+      // Do not enlarge the final small batch. Request at most the exact remainder.
+      let enlarged = false;
+      if (largePagesEnabled && count - before >= knob.original * 2) {
+        const target = Math.min(80, count - before);
+        try {
+          store[knob.key] = target;
+          enlarged = store[knob.key] === target;
+        } catch { largePagesEnabled = false; }
+      }
       try {
         await Promise.race([
           Promise.resolve().then(() => store.loadMoreWatchlaterList()),
@@ -102,14 +129,20 @@
             timer = setTimeout(() => reject(new Error('B站原生列表加载超时')), 12000);
           })
         ]);
+        // Some native actions resolve before reactive data is committed.
+        await waitForAdvance(store, before);
+        await awaitIdle(store);
       } finally {
         clearTimeout(timer);
+        if (knob) {
+          try { store[knob.key] = knob.original; } catch {}
+        }
       }
-      // Some Bilibili actions return before their internal requests commit
-      // the next batch. Wait for the reactive array to grow, not only for
-      // the action's returned Promise.
-      await waitForAdvance(store, before);
-      await awaitIdle(store);
+      if (enlarged) {
+        const added = getNativeItems(store).length - before;
+        console.info('[稍后再看排序/B] 批量加载', { requested: Math.min(80, count - before), added });
+        if (added <= knob.original) largePagesEnabled = false;
+      }
       if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
       const after = getNativeItems(store).length;
       if (after > count) throw new Error('原生列表数量超过接口数据，停止排序');

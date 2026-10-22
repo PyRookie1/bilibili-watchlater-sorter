@@ -44,6 +44,24 @@ function storeFor(raw, initial = 20) {
   return { store, state, allCards, get loads() { return loads; } };
 }
 
+test('experimental B honors an explicit writable page size and restores it', async () => {
+  const raw = rawVideos(220);
+  const mock = storeFor(raw);
+  mock.store.pageSize = 20;
+  let calls = 0;
+  mock.store.loadMoreWatchlaterList = async () => {
+    calls++;
+    const start = mock.state.watchlaterList.length;
+    const next = mock.allCards.slice(start, start + mock.store.pageSize);
+    mock.state.watchlaterList.push(...next);
+    mock.state.checkedList.push(...next.map(v => ({ aid: v.aid, checked: v.aid === 6 })));
+  };
+  await native.sortFull(mock.store, raw, 'published-desc', sortVideos);
+  assert.equal(mock.store.pageSize, 20);
+  assert.ok(calls <= 4, 'batch-aware native Store should make fewer calls');
+  assert.equal(mock.state.watchlaterList.length, 220);
+});
+
 test('finds Bilibili list store in Vue app-level Pinia injection', () => {
   const mock = storeFor(rawVideos());
   const root = { __vue_app__: { _context: { provides: {
