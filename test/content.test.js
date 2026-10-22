@@ -16,7 +16,7 @@ test('v0.8.14 prefetches data at document_start before UI arrives', () => {
   assert.equal(main.run_at, 'document_start');
   assert.equal(early.run_at, 'document_start');
   assert.deepEqual(early.js, ['src/preload.js']);
-  assert.deepEqual(isolated.js, ['src/sort.js', 'src/date-overlay.js', 'src/content.js']);
+  assert.deepEqual(isolated.js, ['src/sort.js', 'src/date-overlay.js', 'src/virtual-list.js', 'src/content.js']);
   assert.deepEqual(main.js, [
     'src/sort.js', 'src/full-native.js', 'src/native-intercept.js',
     'src/api.js', 'src/page-bridge.js'
@@ -67,7 +67,8 @@ test('preload begins silently on page mount and metadata is reused on selection'
   assert.match(content, /if \(!dataPromise\)/);
   assert.match(content, /function beginPreload\(\)/);
   assert.match(content, /void fullData\(\)\.catch/);
-  assert.match(content, /void requestPage\('PREPARE', \{\}, 120000\)/);
+  assert.match(content, /virtual\.show\(nativeGrid, items, next\)/);
+  assert.doesNotMatch(content, /void requestPage\('PREPARE'/);
   assert.match(content, /if \(mount\(\)\) \{\s*beginPreload\(\);/);
   assert.match(content, /requestPage\('SET_MODE', \{ mode: next, items \}/);
   assert.match(content, /option\.addEventListener\('click'/);

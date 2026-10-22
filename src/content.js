@@ -7,6 +7,7 @@
   globalThis.__watchLaterSorterInstalled = true;
   const { isSortMode, formatPublished } = globalThis.WatchLaterSort;
   const dateOverlay = globalThis.WatchLaterDateOverlay;
+  const virtual = globalThis.WatchLaterVirtual;
   const CHANNEL = 'wl-sorter-bilibili-v1';
   const OPTIONS = [
     ['published-desc', '最新发布', '按发布时间从新到旧排序'],
@@ -164,6 +165,7 @@
   function mount() {
     const grid = isListPage() ? document.querySelector('.watchlater-list-container') : null;
     if (grid !== nativeGrid) {
+      virtual?.clear(nativeGrid);
       dateOverlay.clear(nativeGrid);
       clearInjectedOptions();
       activeDates = null;
@@ -206,6 +208,7 @@
     activeDates = null;
     lastNativeCaption = row.dataset.wlSorterNativeOption;
     if (triggerLabel?.isConnected) triggerLabel.textContent = lastNativeCaption;
+    virtual?.clear(nativeGrid);
     dateOverlay.clear(nativeGrid);
     report('');
   }
@@ -300,7 +303,7 @@
     preparedGrid = nativeGrid;
     // Run independently: both requests start while the native page is opening.
     void fullData().catch(() => {});
-    void requestPage('PREPARE', {}, 120000);
+    // Virtual mode only needs complete metadata; no native pagination warmup.
   }
   function showPublicationDates() {
     if (nativeGrid && activeDates) dateOverlay.render(nativeGrid, activeDates);
@@ -324,6 +327,11 @@
       // The MAIN-world sorter verifies exact native identities before reordering.
       let items = await fullData();
       if (current !== revision) return;
+      // Experiment D: render just the visible window. Keep native Pinia untouched.
+      if (virtual) {
+        virtual.show(nativeGrid, items, next);
+        return;
+      }
       let result = await requestPage('SET_MODE', { mode: next, items }, 120000);
       if (current !== revision) return;
       if (!result?.ok && result?.staleMetadata === true) {
@@ -343,6 +351,7 @@
       // Keep Bilibili's own select and menu styling unchanged.
     } catch (reason) {
       if (current !== revision) return;
+      virtual?.clear(nativeGrid);
       cacheEpoch++;
       cached = null;
       mode = null;
@@ -375,6 +384,7 @@
     if (records.some(record => {
       // Native pagination updates dozens of cards. They do not change the
       // dropdown and need no menu scan unless publication labels are active.
+      if (record.target.closest?.('.wl-sorter-virtual-host')) return false;
       if (record.target.closest?.('.watchlater-list-container') && !activeDates)
         return false;
       if (record.type === 'attributes')
