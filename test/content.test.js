@@ -67,7 +67,8 @@ test('preload begins silently on page mount and metadata is reused on selection'
   assert.match(content, /if \(!dataPromise\)/);
   assert.match(content, /function beginPreload\(\)/);
   assert.match(content, /void fullData\(\)\.catch/);
-  assert.match(content, /void requestPage\('PREPARE', \{\}, 120000\)/);
+  assert.doesNotMatch(content, /void requestPage\('PREPARE'/);
+  assert.match(read('src/native-intercept.js'), /await FULL.prepare\(store, \(\) => epoch === prepareEpoch\)/);
   assert.match(content, /if \(mount\(\)\) \{\s*beginPreload\(\);/);
   assert.match(content, /requestPage\('SET_MODE', \{ mode: next, items \}/);
   assert.match(content, /option\.addEventListener\('click'/);

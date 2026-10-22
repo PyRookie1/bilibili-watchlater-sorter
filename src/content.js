@@ -300,7 +300,7 @@
     preparedGrid = nativeGrid;
     // Run independently: both requests start while the native page is opening.
     void fullData().catch(() => {});
-    void requestPage('PREPARE', {}, 120000);
+    // MAIN-world adapter starts native warmup as soon as the Pinia store appears.
   }
   function showPublicationDates() {
     if (nativeGrid && activeDates) dateOverlay.render(nativeGrid, activeDates);

@@ -30,6 +30,27 @@
     }
   }, true);
 
+  // Proactive native warmup does not wait for the idle content script.
+  let warmupRunning = false, warmupReady = false, warmupFailures = 0, retryAt = 0;
+  const warmupTimer = setInterval(() => {
+    if (warmupReady || modeEpoch > 0) { clearInterval(warmupTimer); return; }
+    if (warmupRunning || Date.now() < retryAt) return;
+    const store = FULL.findStore(document.querySelector('.watchlater-list-container'));
+    if (!store) return;
+    warmupRunning = true;
+    const epoch = prepareEpoch;
+    queue = queue.catch(() => {}).then(async () => {
+      try {
+        const result = await FULL.prepare(store, () => epoch === prepareEpoch);
+        warmupReady = !!result?.ok;
+      } catch {
+        warmupFailures++;
+        retryAt = Date.now() + Math.min(6000, 1000 * 2 ** warmupFailures);
+      } finally { warmupRunning = false; }
+    });
+  }, 150);
+  setTimeout(() => clearInterval(warmupTimer), 30000);
+
   window.addEventListener('message', event => {
     if (event.source !== window || event.origin !== location.origin) return;
     const request = event.data;
