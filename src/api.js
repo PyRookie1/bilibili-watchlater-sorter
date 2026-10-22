@@ -23,6 +23,10 @@
         title: typeof video.title === 'string' ? video.title : '',
         pic: video.pic, pubdate: video.pubdate, duration: video.duration,
         add_at: video.add_at, progress: video.progress,
+        cid: video.cid || video.page?.cid || 0,
+        videos: video.videos,
+        ownerMid: video.owner?.mid, ownerFace: video.owner?.face,
+        viewCount: video.stat?.view,
         owner: typeof video.owner?.name === 'string' ? video.owner.name : ''
       };
     });

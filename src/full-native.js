@@ -180,8 +180,83 @@
     return next.length;
   }
 
+  // Experimental C: synthesize missing native records from a *recognized*
+  // card template. If the structure or essential metadata differs, retain the
+  // original safe pagination path. This adapter is not a Bilibili public API.
+  function projectCard(template, item) {
+    if (!Number.isSafeInteger(item.cid) || item.cid <= 0 ||
+        typeof item.title !== 'string' || typeof item.pic !== 'string') return null;
+    return {
+      ...template,
+      aid: item.aid, bvid: item.bvid, cid: item.cid,
+      rawTitle: item.title,
+      title: { ...template.title, title: item.title, text: item.title },
+      cover: item.pic, pic: item.pic,
+      duration: item.duration, pubdate: item.pubdate, add_at: item.add_at,
+      progress: item.progress || 0, isFinished: false,
+      author: { ...template.author, name: item.owner,
+        mid: item.ownerMid, face: item.ownerFace },
+      stats: { ...template.stats, view: item.viewCount || 0 }
+    };
+  }
+
+  function tryInjectNativeCards(store, raw, mode, sortVideos) {
+    const existing = getNativeItems(store);
+    if (!Array.isArray(existing) || !existing.length ||
+        store.loading || store.inited === false || store.totalCount !== raw.length ||
+        !Array.isArray(store.checkedList) || store.checkedList.length !== existing.length)
+      return false;
+    const template = existing[0];
+    // Fail closed rather than create a card object with unknown Vue structure.
+    if (typeof template?.title?.text !== 'string' ||
+        typeof template?.cover !== 'string' ||
+        typeof template?.author !== 'object' || !template.author ||
+        typeof template?.stats !== 'object' || !template.stats ||
+        !Number.isSafeInteger(template.cid)) return false;
+    const known = new Map(existing.map((item, i) => [identity(item), i]));
+    if (known.has(null) || known.size !== existing.length) return false;
+    const ordered = sortVideos(raw, mode);
+    const synthesized = ordered.map(item => {
+      const idx = known.get(identity(item));
+      return idx === undefined ? projectCard(template, item) : existing[idx];
+    });
+    if (synthesized.some(item => !item)) return false;
+    const checkedTemplate = store.checkedList[0];
+    if (!checkedTemplate || typeof checkedTemplate !== 'object') return false;
+    const nextChecked = ordered.map(item => {
+      const idx = known.get(identity(item));
+      return idx === undefined ? { ...checkedTemplate, aid: item.aid, bvid: item.bvid, checked: false }
+        : store.checkedList[idx];
+    });
+    if (new Set(synthesized.map(identity)).size !== raw.length) return false;
+    const originalCards = existing.slice();
+    const originalChecked = store.checkedList.slice();
+    try {
+      const update = state => {
+        state.watchlaterList.splice(0, state.watchlaterList.length, ...synthesized);
+        state.checkedList.splice(0, state.checkedList.length, ...nextChecked);
+      };
+      if (typeof store.$patch === 'function') store.$patch(update);
+      else update(store);
+      if (!hasExactIds(store, assertMetadata(raw))) throw new Error('注入后身份校验未通过');
+      console.info('[稍后再看排序/C] 直接构造原生卡片', raw.length);
+      return true;
+    } catch (error) {
+      const revert = state => {
+        state.watchlaterList.splice(0, state.watchlaterList.length, ...originalCards);
+        state.checkedList.splice(0, state.checkedList.length, ...originalChecked);
+      };
+      if (typeof store.$patch === 'function') store.$patch(revert);
+      else revert(store);
+      console.warn('[稍后再看排序/C] 注入失败，回退原生分页', error);
+      return false;
+    }
+  }
+
   async function sortFull(store, raw, mode, sortVideos, isCurrent = () => true) {
     assertMetadata(raw);
+    if (isCurrent() && tryInjectNativeCards(store, raw, mode, sortVideos))
+      return { ok: true, count: raw.length };
     await materialize(store, raw, isCurrent);
     if (!isCurrent()) throw new Error('已切换至 B站原生排序');
     const count = applyOrder(store, raw, mode, sortVideos);

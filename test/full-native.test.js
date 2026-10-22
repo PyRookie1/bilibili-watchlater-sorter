@@ -44,6 +44,22 @@ function storeFor(raw, initial = 20) {
   return { store, state, allCards, get loads() { return loads; } };
 }
 
+test('experimental C builds missing cards in one transaction when schema is recognized', async () => {
+  const raw = rawVideos(80).map((video, i) => ({
+    ...video, cid: 10000 + i, title: 'Video ' + i,
+    pic: 'https://i0.hdslb.com/cover.jpg',
+    owner: 'Uploader ' + i, ownerMid: i + 20, viewCount: i * 5
+  }));
+  const mock = storeFor(raw);
+  const result = await native.sortFull(mock.store, raw, 'published-desc', sortVideos);
+  assert.deepEqual(result, { ok: true, count: 80 });
+  assert.equal(mock.loads, 0);
+  assert.equal(mock.state.watchlaterList[0].aid, 80);
+  assert.equal(mock.state.watchlaterList[0].cid, raw[79].cid);
+  assert.equal(mock.state.watchlaterList[0].title.text, raw[79].title);
+  assert.equal(mock.state.checkedList.length, 80);
+});
+
 test('finds Bilibili list store in Vue app-level Pinia injection', () => {
   const mock = storeFor(rawVideos());
   const root = { __vue_app__: { _context: { provides: {
