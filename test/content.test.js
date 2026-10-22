@@ -41,7 +41,7 @@ test('preload begins silently on page mount and metadata is reused on selection'
   assert.match(preload, /WatchLaterEarlyDataPromise/);
   assert.match(preload, /chrome\.runtime\.sendMessage\(\{ type: 'WL_SORTER_FETCH' \}\)/);
   assert.match(content, /globalThis\.WatchLaterEarlyDataPromise/);
-  assert.match(content, /function fullData\(\)/);
+  assert.match(content, /function fullData\(fresh = false\)/);
   assert.match(content, /if \(!dataPromise\)/);
   assert.match(content, /function beginPreload\(\)/);
   assert.match(content, /void fullData\(\)\.catch/);
