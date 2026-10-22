@@ -8,17 +8,18 @@
   const dateOverlay = globalThis.WatchLaterDateOverlay;
   const CHANNEL = 'wl-sorter-bilibili-v1';
   const OPTIONS = [
-    ['default', '默认'],
-    ['published-desc', '发布时间：最新优先'],
-    ['published-asc', '发布时间：最早优先'],
-    ['duration-asc', '总时长：短到长'],
-    ['duration-desc', '总时长：长到短']
+    ['published-desc', '最新发布', '按发布时间从新到旧排序'],
+    ['published-asc', '最早发布', '按发布时间从旧到新排序'],
+    ['duration-asc', '时长最短', '按视频时长从短到长排序'],
+    ['duration-desc', '时长最长', '按视频时长从长到短排序']
   ];
-  let mode = 'default';
+  const NATIVE_CAPTIONS = new Set(['最近添加', '最早添加']);
+  let mode = null;
   let cached = null;
   let dataPromise = null;
   let cacheEpoch = 0;
   let nativeGrid = null;
+  let nativeAnchor = null;
   let preparedGrid = null;
   let scheduled = false;
   let revision = 0;
@@ -26,31 +27,43 @@
 
   const root = document.createElement('div');
   root.id = 'wl-sorter-root';
-  const label = document.createElement('label');
-  label.className = 'wl-sorter-label';
-  label.textContent = '排序';
-  const select = document.createElement('select');
-  select.className = 'wl-sorter-select';
-  select.setAttribute('aria-label', '稍后再看全量排序方式');
-  for (const [value, caption] of OPTIONS) {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = caption;
-    select.append(option);
-  }
-  select.value = 'default';
-  label.append(select);
+  const buttons = new Map();
   const error = document.createElement('span');
   error.className = 'wl-sorter-error';
   error.setAttribute('role', 'status');
   error.hidden = true;
-  root.append(label, error);
 
+  function captionOf(element) {
+    return element?.textContent?.replace(/[\s▼▽⌄▾∨]/g, '').trim() || '';
+  }
+  function nativeCaption(target) {
+    for (let node = target; node && node !== document.documentElement; node = node.parentElement) {
+      const caption = captionOf(node);
+      if (NATIVE_CAPTIONS.has(caption)) return caption;
+      if (caption.length > 25 || node === nativeGrid) break;
+    }
+    return null;
+  }
   function report(message = '') {
     error.textContent = message;
     error.title = message;
     error.hidden = !message;
-    select.title = message || '完整列表原生排序';
+    for (const button of buttons.values())
+      button.title = message || button.dataset.wlSorterTitle;
+  }
+  function updateButtons() {
+    for (const [value, button] of buttons) {
+      const active = value === mode;
+      button.classList.toggle('wl-sorter-active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
+  }
+  function setBusy(busy) {
+    for (const button of buttons.values()) {
+      if ('disabled' in button) button.disabled = busy;
+      button.setAttribute('aria-disabled', String(busy));
+      button.classList.toggle('wl-sorter-busy', busy);
+    }
   }
   function isListPage() {
     return /^\/(?:watchlater(?:\/list)?|list\/watchlater)\/?$/.test(location.pathname) &&
@@ -58,34 +71,119 @@
   }
   function findAnchor(grid) {
     const y = grid.getBoundingClientRect().top;
-    for (const element of document.querySelectorAll('button, [role="button"], [class*="sort"], span')) {
-      if (root.contains(element)) continue;
-      const caption = element.textContent?.replace(/[\s▼▽⌄▾∨]/g, '');
-      if (caption !== '最近添加' && caption !== '最早添加') continue;
+    const matches = [];
+    const seen = new Set();
+    for (const element of document.querySelectorAll('button, [role="button"], [class*="sort"], span, div, li')) {
+      if (root.contains(element) || !NATIVE_CAPTIONS.has(captionOf(element))) continue;
       const rect = element.getBoundingClientRect();
-      if (!rect.width || !rect.height || rect.top > y) continue;
-      return element.closest('button,[role="button"],[class*="dropdown"],[class*="sort"],[class*="select"]') || element;
+      if (!rect.width || !rect.height || rect.top > y || y - rect.bottom > 220) continue;
+      let control = element;
+      for (let parent = control.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+        if (parent.contains(grid) || captionOf(parent) !== captionOf(element)) break;
+        if (parent.getBoundingClientRect().width > 280) break;
+        control = parent;
+      }
+      if (!seen.has(control)) {
+        seen.add(control);
+        matches.push({ control, caption: captionOf(element) });
+      }
     }
-    return null;
+    const recent = matches.find(item => item.caption === '最近添加');
+    const oldest = matches.find(item => item.caption === '最早添加');
+    if (recent && oldest && recent.control.parentElement === oldest.control.parentElement)
+      return recent.control.compareDocumentPosition(oldest.control) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? oldest.control : recent.control;
+    return recent?.control || oldest?.control || null;
+  }
+  function cloneButton(template, caption, value, title) {
+    const button = template ? template.cloneNode(true) : document.createElement('button');
+    const oldCaption = captionOf(template);
+    const elements = [button, ...button.querySelectorAll('*')];
+    for (const element of elements) {
+      element.removeAttribute('id');
+      element.removeAttribute('href');
+      element.removeAttribute('aria-selected');
+      element.removeAttribute('aria-expanded');
+      element.removeAttribute('aria-haspopup');
+      element.removeAttribute('aria-checked');
+      element.removeAttribute('disabled');
+      element.classList?.remove('active', 'selected', 'is-active', 'on');
+      for (const attr of [...element.attributes])
+        if (/^on/i.test(attr.name)) element.removeAttribute(attr.name);
+    }
+    const textTarget = elements.filter(node => captionOf(node) === oldCaption).at(-1) || button;
+    textTarget.textContent = caption;
+    button.classList.add('wl-sorter-button');
+    button.dataset.wlSorterMode = value;
+    button.dataset.wlSorterTitle = title;
+    button.title = title;
+    button.setAttribute('role', 'button');
+    button.setAttribute('aria-label', title);
+    button.setAttribute('aria-pressed', 'false');
+    button.tabIndex = 0;
+    if (button.tagName === 'BUTTON') button.type = 'button';
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.getAttribute('aria-disabled') === 'true') return;
+      void choose(value);
+    });
+    if (button.tagName !== 'BUTTON') {
+      button.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          button.click();
+        }
+      });
+    }
+    return button;
   }
   function mount() {
     const grid = isListPage() ? document.querySelector('.watchlater-list-container') : null;
     if (grid !== nativeGrid) {
       dateOverlay.clear(nativeGrid);
+      activeDates = null;
+      revision++;
+      mode = null;
       nativeGrid = grid;
+      nativeAnchor = null;
+      preparedGrid = null;
       root.remove();
     }
     if (!grid) { root.remove(); return false; }
-    if (!root.isConnected) {
-      const anchor = findAnchor(grid);
+    const anchor = findAnchor(grid);
+    if (!root.isConnected || anchor !== nativeAnchor) {
       const host = anchor?.parentElement || grid.parentElement;
       if (!host) return false;
+      root.remove();
+      root.replaceChildren();
+      buttons.clear();
+      for (const [value, caption, title] of OPTIONS) {
+        const button = cloneButton(anchor, caption, value, title);
+        buttons.set(value, button);
+        root.append(button);
+      }
+      root.append(error);
       root.dataset.placement = anchor ? 'inline' : 'fallback';
-      if (anchor) host.insertBefore(root, anchor);
+      if (anchor) host.insertBefore(root, anchor.nextSibling);
       else host.insertBefore(root, grid);
+      nativeAnchor = anchor;
+      updateButtons();
     }
     return true;
   }
+  function returnToNative(event) {
+    if (!nativeGrid || root.contains(event.target) || !nativeCaption(event.target)) return;
+    revision++;
+    mode = null;
+    activeDates = null;
+    dateOverlay.clear(nativeGrid);
+    report('');
+    updateButtons();
+    setBusy(false);
+  }
+  document.addEventListener('click', returnToNative, true);
+
   function requestPage(type, fields = {}, timeoutMs = 12000) {
     return new Promise(resolve => {
       const id = crypto.randomUUID();
@@ -163,17 +261,17 @@
     if (!isSortMode(next)) return;
     const current = ++revision;
     mode = next;
-    select.value = next;
+    updateButtons();
     activeDates = null;
     dateOverlay.clear(nativeGrid);
     report('');
     // No stored preference: refreshing always opens in the Bilibili default mode.
-    select.disabled = true;
-    select.title = '正在应用完整列表排序';
+    setBusy(true);
     try {
       if (!mount()) throw new Error('未找到 B站稍后再看原生列表');
       beginPreload();
       const items = await fullData(true);
+      if (current !== revision) return;
       const result = await requestPage('SET_MODE', { mode: next, items }, 120000);
       if (current !== revision) return;
       if (!result?.ok)
@@ -182,18 +280,19 @@
         activeDates = dateOverlay.dateMap(items, formatPublished);
         showPublicationDates();
       }
-      select.title = '已在原生列表排序全部 ' + result.count + ' 条视频';
+      for (const button of buttons.values()) button.title = '已排序全部 ' + result.count + ' 条视频';
     } catch (reason) {
       if (current !== revision) return;
       cached = null;
+      mode = null;
+      updateButtons();
       report('全量排序失败：' + (reason?.message || reason));
     } finally {
-      if (current === revision) select.disabled = false;
+      if (current === revision) setBusy(false);
     }
   }
-  select.addEventListener('change', () => { void choose(select.value); });
   chrome.runtime.onMessage.addListener(message => {
-    if (message?.type === 'WL_SORTER_OPEN' && root.isConnected) select.focus();
+    if (message?.type === 'WL_SORTER_OPEN' && root.isConnected) buttons.values().next().value?.focus();
   });
   function schedule() {
     if (scheduled) return;

@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.9 prefetches data at document_start before UI arrives', () => {
+test('v0.8.10 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.9');
+  assert.equal(manifest.version, '0.8.10');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -26,11 +26,19 @@ test('v0.8.9 prefetches data at document_start before UI arrives', () => {
       assert.ok(fs.existsSync(path.join(base, script)), script);
 });
 
-test('every new page starts in Bilibili default order with label 默认', () => {
+test('native 最近添加 and 最早添加 replace the extension default UI', () => {
   const content = read('src/content.js');
-  assert.match(content, /\['default', '默认'\]/);
-  assert.match(content, /let mode = 'default'/);
-  assert.match(content, /select\.value = 'default'/);
+  const css = read('src/content.css');
+  assert.doesNotMatch(content, /\['default', '默认'\]/);
+  assert.doesNotMatch(content, /createElement\('select'\)|select\.value/);
+  for (const name of ['最新发布', '最早发布', '时长最短', '时长最长'])
+    assert.ok(content.includes(name), name);
+  assert.match(content, /cloneNode\(true\)/);
+  assert.match(content, /host\.insertBefore\(root, anchor\.nextSibling\)/);
+  assert.match(content, /document\.addEventListener\('click', returnToNative, true\)/);
+  assert.match(content, /mode = null/);
+  assert.match(content, /dateOverlay\.clear\(nativeGrid\)/);
+  assert.match(css, /\.wl-sorter-button\.wl-sorter-active/);
   assert.doesNotMatch(content, /localStorage\.getItem|localStorage\.setItem|wl-sorter-mode/);
   assert.doesNotMatch(content, /void choose\(mode\)/);
 });
@@ -48,7 +56,7 @@ test('preload begins silently on page mount and metadata is reused on selection'
   assert.match(content, /void requestPage\('PREPARE', \{\}, 120000\)/);
   assert.match(content, /if \(mount\(\)\) \{\s*beginPreload\(\);/);
   assert.match(content, /requestPage\('SET_MODE', \{ mode: next, items \}/);
-  assert.match(content, /select\.addEventListener\('change'/);
+  assert.match(content, /button\.addEventListener\('click'/);
 });
 
 test('no CSS card sort, forced page scroll, refresh, or extra view', () => {

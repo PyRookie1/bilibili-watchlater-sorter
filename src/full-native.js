@@ -169,15 +169,31 @@
     return next.length;
   }
 
-  async function sortFull(store, raw, mode, sortVideos) {
+  async function sortFull(store, raw, mode, sortVideos, isCurrent = () => true) {
     assertMetadata(raw);
     await materialize(store, raw);
+    if (!isCurrent()) throw new Error('已切换至 B站原生排序');
     const count = applyOrder(store, raw, mode, sortVideos);
     return { ok: true, count };
   }
 
+
+  function restoreNativeOrder(store, raw, caption, sortVideos) {
+    if (caption !== '最近添加' && caption !== '最早添加')
+      throw new Error('未知 B站原生排序方式');
+    const ids = assertMetadata(raw);
+    if (!hasExactIds(store, ids))
+      throw new Error('B站原生列表与缓存不一致，交由页面自行排序');
+    const hasAddedTime = raw.every(video => Number.isSafeInteger(video.add_at) && video.add_at > 0);
+    const ordered = hasAddedTime
+      ? raw.slice().sort((a, b) => caption === '最近添加'
+        ? b.add_at - a.add_at : a.add_at - b.add_at)
+      : caption === '最近添加' ? raw.slice() : raw.slice().reverse();
+    return applyOrder(store, ordered, 'default', sortVideos);
+  }
+
   root.WatchLaterFullNative = Object.freeze({
-    identity, findStore, assertMetadata, materialize, prepare, applyOrder, sortFull
+    identity, findStore, assertMetadata, materialize, prepare, applyOrder, sortFull, restoreNativeOrder
   });
   if (typeof module !== 'undefined' && module.exports)
     module.exports = root.WatchLaterFullNative;

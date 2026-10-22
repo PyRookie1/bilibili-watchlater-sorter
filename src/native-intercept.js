@@ -7,6 +7,36 @@
   const MODES = globalThis.WatchLaterSort;
   const FULL = globalThis.WatchLaterFullNative;
   let queue = Promise.resolve();
+  let nativeEpoch = 0;
+  let lastCustomItems = null;
+  let customActive = false;
+  const nativeCaptions = new Set(['最近添加', '最早添加']);
+
+  function nativeCaption(target) {
+    for (let node = target; node && node !== document.documentElement; node = node.parentElement) {
+      if (node.closest?.('#wl-sorter-root')) return null;
+      const caption = node.textContent?.replace(/[\s▼▽⌄▾∨]/g, '').trim() || '';
+      if (nativeCaptions.has(caption)) return caption;
+      if (caption.length > 25) break;
+    }
+    return null;
+  }
+  // Capture before Vue's native click handler, including a click on
+  // the already-selected native option.
+  window.addEventListener('click', event => {
+    const caption = nativeCaption(event.target);
+    if (!caption) return;
+    nativeEpoch++;
+    if (!customActive) return;
+    customActive = false;
+    const store = FULL.findStore(document.querySelector('.watchlater-list-container'));
+    if (!store || !lastCustomItems) return;
+    try {
+      FULL.restoreNativeOrder(store, lastCustomItems, caption, MODES.sortVideos);
+    } catch {
+      // Keep Bilibili's original click handler responsible for changed lists.
+    }
+  }, true);
 
   window.addEventListener('message', event => {
     if (event.source !== window || event.origin !== location.origin) return;
@@ -16,6 +46,7 @@
         typeof request.id !== 'string' || !/^[a-f0-9-]{16,64}$/i.test(request.id) ||
         (request.type === 'SET_MODE' && !MODES.isSortMode(request.mode))) return;
 
+    const requestedEpoch = nativeEpoch;
     queue = queue.catch(() => {}).then(async () => {
       let result;
       try {
@@ -26,7 +57,13 @@
           result = await FULL.prepare(store);
         } else {
           FULL.assertMetadata(request.items);
-          result = await FULL.sortFull(store, request.items, request.mode, MODES.sortVideos);
+          if (requestedEpoch !== nativeEpoch) throw new Error('已切换至 B站原生排序');
+          result = await FULL.sortFull(store, request.items, request.mode, MODES.sortVideos,
+            () => requestedEpoch === nativeEpoch);
+          if (requestedEpoch === nativeEpoch) {
+            lastCustomItems = request.items;
+            customActive = true;
+          }
         }
       } catch (error) {
         result = { ok: false, error: String(error?.message || error) };

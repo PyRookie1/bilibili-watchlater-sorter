@@ -12,12 +12,19 @@ function harness({ failure = null } = {}) {
   const posted = [];
   let onMessage;
   const window = {
-    addEventListener(type, listener) { if (type === 'message') onMessage = listener; },
+    addEventListener(type, listener) {
+      if (type === 'message') onMessage = listener;
+      if (type === 'click') this.onClick = listener;
+    },
     postMessage(message) { posted.push(message); }
   };
   const calls = [];
   const prepareCalls = [];
   const core = {
+    restoreNativeOrder(store, raw, caption) {
+      calls.push({ native: caption, raw });
+      return raw.length;
+    },
     async prepare(store) {
       prepareCalls.push(store);
       if (failure) throw Error(failure);
@@ -27,7 +34,8 @@ function harness({ failure = null } = {}) {
       if (!Array.isArray(raw) || raw.length !== 424) throw Error('incomplete');
     },
     findStore(grid) { return grid ? { totalCount: 424 } : null; },
-    async sortFull(store, raw, mode) {
+    async sortFull(store, raw, mode, sortVideos, isCurrent) {
+      if (!isCurrent()) throw Error('cancelled');
       calls.push({ store, raw, mode });
       if (failure) throw Error(failure);
       return { ok: true, count: raw.length };
@@ -36,7 +44,7 @@ function harness({ failure = null } = {}) {
   const scope = {
     window,
     location: { origin: 'https://www.bilibili.com' },
-    document: { querySelector: () => ({}) },
+    document: { querySelector: () => ({}), documentElement: {} },
     WatchLaterSort: {
       isSortMode: mode => ['default','duration-asc','published-desc'].includes(mode),
       sortVideos: records => records
@@ -103,4 +111,15 @@ test('preload errors do not pretend the native list was sorted', async () => {
   assert.equal(h.posted.at(-1).type, 'PREPARE_RESULT');
   assert.equal(h.posted.at(-1).ok, false);
   assert.equal(h.calls.length, 0);
+});
+
+test('native click restores last custom order and cancels extension ownership', async () => {
+  const h = harness();
+  await h.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
+  const node = { textContent: '最近添加', parentElement: null, closest: () => null };
+  h.window.onClick({ target: node });
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.calls[1].native, '最近添加');
+  h.window.onClick({ target: node });
+  assert.equal(h.calls.length, 2, 'next native click is handled exclusively by Bilibili');
 });

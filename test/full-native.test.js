@@ -206,3 +206,32 @@ test('matching identities are enough when native totalCount is stale', async () 
   assert.equal(result.count, 20);
   assert.equal(mock.state.watchlaterList[0].aid, 20);
 });
+
+test('native add-time controls restore both directions after custom sorting', async () => {
+  const raw = rawVideos(60).map((video, i) => ({ ...video, add_at: 5000 + i }));
+  const mock = storeFor(raw, 60);
+  await native.sortFull(mock.store, raw, 'duration-desc', sortVideos);
+  assert.equal(mock.state.watchlaterList[0].aid, 1);
+  assert.equal(native.restoreNativeOrder(mock.store, raw, '最近添加', sortVideos), 60);
+  assert.deepEqual(mock.state.watchlaterList.map(v => v.aid), raw.map(v => v.aid).reverse());
+  await native.sortFull(mock.store, raw, 'duration-desc', sortVideos);
+  assert.equal(native.restoreNativeOrder(mock.store, raw, '最早添加', sortVideos), 60);
+  assert.deepEqual(mock.state.watchlaterList.map(v => v.aid), raw.map(v => v.aid));
+  assert.deepEqual(mock.state.checkedList.map(v => v.aid), raw.map(v => v.aid));
+});
+
+test('native restore refuses stale data without mutating the list', async () => {
+  const raw = rawVideos(20);
+  const mock = storeFor(raw, 20);
+  mock.state.watchlaterList[0] = card({ aid: 999, bvid: 'BV0000000999' });
+  assert.throws(() => native.restoreNativeOrder(mock.store, raw, '最近添加', sortVideos), /缓存不一致/);
+  assert.equal(mock.state.watchlaterList[0].aid, 999);
+});
+
+test('stale extension sort is cancelled before applying after native click', async () => {
+  const raw = rawVideos(60);
+  const mock = storeFor(raw, 60);
+  await assert.rejects(native.sortFull(mock.store, raw, 'duration-asc', sortVideos, () => false),
+    /已切换至 B站原生排序/);
+  assert.deepEqual(mock.state.watchlaterList.map(v => v.aid), raw.map(v => v.aid));
+});

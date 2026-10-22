@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "B站稍后再看排序",
-  "version": "0.8.9",
-  "description": "原生稍后再看全量排序；发布时间标签下移0.1像素",
+  "version": "0.8.10",
+  "description": "原生排序按钮一体化，按发布时间与时长完整排序",
   "permissions": [
     "storage"
   ],
