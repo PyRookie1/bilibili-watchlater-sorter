@@ -60,6 +60,9 @@ function harness({ failure = null, failureCode = null, slowPrepare = false } = {
       sortVideos: records => records
     },
     WatchLaterFullNative: core,
+    setInterval: () => 1,
+    clearInterval: () => {},
+    setTimeout: () => 1,
     Promise
   };
   vm.runInNewContext(src, scope);
