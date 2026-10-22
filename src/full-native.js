@@ -74,7 +74,7 @@
     return remaining.size === 0;
   }
 
-  async function materialize(store, expected) {
+  async function materialize(store, expected, isCurrent = () => true) {
     const ids = Array.isArray(expected) ? assertMetadata(expected) : null;
     const count = ids ? ids.length : expected;
     if (!Number.isSafeInteger(count) || count < 0 || count > MAX_ITEMS)
@@ -89,7 +89,9 @@
     const maxCalls = Math.min(100, Math.ceil(Math.max(0, count - getNativeItems(store).length) / 20) + 8);
     let stalled = 0;
     for (let call = 0; getNativeItems(store).length < count && call < maxCalls; call++) {
+      if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
       await awaitIdle(store);
+      if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
       const before = getNativeItems(store).length;
       if (before >= count) break;
       let timer;
@@ -108,6 +110,7 @@
       // the action's returned Promise.
       await waitForAdvance(store, before);
       await awaitIdle(store);
+      if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
       const after = getNativeItems(store).length;
       if (after > count) throw new Error('原生列表数量超过接口数据，停止排序');
       stalled = after > before ? 0 : stalled + 1;
@@ -120,7 +123,7 @@
       throw staleMetadata('原生视频与接口完整列表无法一一匹配');
   }
 
-  async function prepare(store) {
+  async function prepare(store, isCurrent = () => true) {
     // The website may be mounting its Pinia store when the extension arrives.
     // Wait for the initial native page load; never trigger its list action
     // while that initial load is incomplete.
@@ -129,12 +132,14 @@
       !Number.isSafeInteger(store?.totalCount) ||
       !Array.isArray(store.watchlaterList) ||
       (store.totalCount > 0 && store.watchlaterList.length === 0)) {
+      if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
       if (Date.now() > deadline) throw new Error('B站原生列表初始化超时');
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+    if (!isCurrent()) throw new Error('后台预加载已让位给当前排序');
     const count = store.totalCount;
     if (count > MAX_ITEMS) throw new Error('原生列表数量超过安全上限');
-    await materialize(store, count);
+    await materialize(store, count, isCurrent);
     // PREPARE must never change the user's original Bilibili sort order.
     return { ok: true, count };
   }
@@ -177,7 +182,7 @@
 
   async function sortFull(store, raw, mode, sortVideos, isCurrent = () => true) {
     assertMetadata(raw);
-    await materialize(store, raw);
+    await materialize(store, raw, isCurrent);
     if (!isCurrent()) throw new Error('已切换至 B站原生排序');
     const count = applyOrder(store, raw, mode, sortVideos);
     return { ok: true, count };

@@ -5,9 +5,9 @@ const path = require('node:path');
 const base = path.resolve(__dirname, '..');
 const read = name => fs.readFileSync(path.join(base, name), 'utf8');
 
-test('v0.8.13 prefetches data at document_start before UI arrives', () => {
+test('v0.8.14 prefetches data at document_start before UI arrives', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '0.8.13');
+  assert.equal(manifest.version, '0.8.14');
   const main = manifest.content_scripts.find(item => item.world === 'MAIN');
   const early = manifest.content_scripts.find(item =>
     item.world !== 'MAIN' && item.js.includes('src/preload.js'));
@@ -143,4 +143,19 @@ test('first selection reuses early metadata; only stale native identities trigge
   assert.match(native, /WL_SORTER_STALE_METADATA/);
   assert.match(bridge, /staleMetadata: error\?\.code === 'WL_SORTER_STALE_METADATA'/);
   assert.doesNotMatch(source, /const items = await fullData\(true\)/);
+});
+
+test('slow early API requests cannot block the next user click indefinitely', () => {
+  const source = read('src/content.js');
+  assert.match(source, /Promise\.race\(\[\s*globalThis\.WatchLaterEarlyDataPromise/);
+  assert.match(source, /timer = setTimeout\(\(\) => resolve\(null\), 500\)/);
+  assert.match(source, /if \(complete\(early\)\) return early\.items/);
+});
+
+test('DOM scheduling ignores pagination mutations and caches native menu', () => {
+  const source = read('src/content.js');
+  assert.match(source, /document\.createTreeWalker\(document\.body, NodeFilter\.SHOW_TEXT\)/);
+  assert.match(source, /if \(activeMenu\?\.menu\?\.isConnected/);
+  assert.match(source, /record\.target\.closest\?\.\('\.watchlater-list-container'\) && !activeDates/);
+  assert.doesNotMatch(source, /querySelectorAll\('li, button, \[role="option"\]/);
 });

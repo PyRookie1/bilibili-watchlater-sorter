@@ -21,6 +21,7 @@
   let dataPromise = null;
   let cacheEpoch = 0;
   let nativeGrid = null;
+  let activeMenu = null;
   let preparedGrid = null;
   let scheduled = false;
   let revision = 0;
@@ -42,12 +43,24 @@
   }
   // Find two *menu options* sharing one parent, never the dropdown trigger.
   function findNativeMenu() {
+    // Most mutations are native video cards, not dropdown changes. Reuse the
+    // attached dropdown instead of scanning the document again.
+    if (activeMenu?.menu?.isConnected &&
+        isVisible(activeMenu.recent) && isVisible(activeMenu.oldest))
+      return activeMenu;
+    activeMenu = null;
     const candidates = [];
     const seen = new Set();
-    for (const element of document.querySelectorAll('li, button, [role="option"], [role="menuitem"], span, div')) {
-      if (element.closest('[data-wl-sorter-option]')) continue;
-      const caption = captionOf(element);
-      if (!NATIVE.has(caption) || !isVisible(element)) continue;
+    // Inspect leaf text once, not textContent of every ancestor div. The latter
+    // repeatedly traverses the entire video grid on large watch-later lists.
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const caption = (textNode.nodeValue || '').replace(/[\s▼▽⌄▾∨]/g, '').trim();
+      if (!NATIVE.has(caption)) continue;
+      const element = textNode.parentElement;
+      if (!element || element.closest('[data-wl-sorter-option]') || !isVisible(element))
+        continue;
       let row = element;
       while (row.parentElement && row.parentElement !== document.body &&
              captionOf(row.parentElement) === caption &&
@@ -79,6 +92,7 @@
           best = { menu, recent: recent.row, oldest: oldest.row, score };
       }
     }
+    activeMenu = best;
     return best;
   }
   function findTriggerLabel(menu) {
@@ -104,6 +118,7 @@
     if (value && captionOf(label) !== value) label.textContent = value;
   }
   function clearInjectedOptions() {
+    activeMenu = null;
     for (const option of optionElements.values()) option.remove();
     optionElements.clear();
     triggerLabel = null;
@@ -229,8 +244,21 @@
       Number.isSafeInteger(result.count) && result.count === result.items.length;
   }
   async function fetchFullData(allowEarly = true) {
-    if (allowEarly) {
-      const early = await (globalThis.WatchLaterEarlyDataPromise || Promise.resolve(null));
+    if (allowEarly && globalThis.WatchLaterEarlyDataPromise) {
+      // A document_start request can stall in the extension service worker.
+      // Never make the first user click wait up to both API timeouts (~30s).
+      let timer;
+      let early;
+      try {
+        early = await Promise.race([
+          globalThis.WatchLaterEarlyDataPromise,
+          new Promise(resolve => { timer = setTimeout(() => resolve(null), 500); })
+        ]);
+      } catch {
+        early = null;
+      } finally {
+        clearTimeout(timer);
+      }
       if (complete(early)) return early.items;
     }
     let backgroundError = '后台没有返回完整列表';
@@ -345,6 +373,10 @@
   window.addEventListener('popstate', schedule);
   new MutationObserver(records => {
     if (records.some(record => {
+      // Native pagination updates dozens of cards. They do not change the
+      // dropdown and need no menu scan unless publication labels are active.
+      if (record.target.closest?.('.watchlater-list-container') && !activeDates)
+        return false;
       if (record.type === 'attributes')
         return !record.target.closest?.('[data-wl-sorter-option]') &&
           record.attributeName !== 'data-wl-sorter-native-option';

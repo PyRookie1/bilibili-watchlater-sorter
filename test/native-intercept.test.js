@@ -8,7 +8,7 @@ const src = fs.readFileSync(path.join(__dirname, '../src/native-intercept.js'), 
 const channel = 'wl-sorter-bilibili-v1';
 const id = '123e4567-e89b-12d3-a456-426614174000';
 
-function harness({ failure = null, failureCode = null } = {}) {
+function harness({ failure = null, failureCode = null, slowPrepare = false } = {}) {
   const posted = [];
   let onMessage;
   const window = {
@@ -20,13 +20,19 @@ function harness({ failure = null, failureCode = null } = {}) {
   };
   const calls = [];
   const prepareCalls = [];
+  const prepareStatus = [];
+  let resolvePrepare;
+  const prepareGate = new Promise(resolve => { resolvePrepare = resolve; });
   const core = {
     restoreNativeOrder(store, raw, caption) {
       calls.push({ native: caption, raw });
       return raw.length;
     },
-    async prepare(store) {
+    async prepare(store, isCurrent) {
       prepareCalls.push(store);
+      if (slowPrepare) await prepareGate;
+      prepareStatus.push(isCurrent());
+      if (!isCurrent()) throw Error('后台预加载已让位给当前排序');
       if (failure) throw Error(failure);
       return { ok: true, count: 424 };
     },
@@ -58,7 +64,7 @@ function harness({ failure = null, failureCode = null } = {}) {
   };
   vm.runInNewContext(src, scope);
   return {
-    posted, calls, prepareCalls, window,
+    posted, calls, prepareCalls, prepareStatus, resolvePrepare, window,
     async send(data, origin = 'https://www.bilibili.com') {
       onMessage({ source: window, origin, data: { channel, id, ...data } });
       await new Promise(resolve => setImmediate(resolve));
@@ -150,4 +156,18 @@ test('stale snapshot errors are explicitly retryable; ordinary errors are not', 
   const failure = harness({ failure: 'B站原生列表加载超时' });
   await failure.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
   assert.equal(failure.posted[0].staleMetadata, false);
+});
+
+test('foreground click cancels queued background preparation and then sorts', async () => {
+  const h = harness({ slowPrepare: true });
+  await h.send({ type: 'PREPARE' });
+  assert.equal(h.prepareCalls.length, 1);
+  await h.send({ type: 'SET_MODE', mode: 'duration-asc', items: videos });
+  h.resolvePrepare();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.prepareStatus[0], false, 'PREPARE must yield to foreground mode');
+  assert.equal(h.calls.length, 1);
+  assert.equal(h.posted.at(-1).type, 'MODE_RESULT');
+  assert.equal(h.posted.at(-1).ok, true);
 });

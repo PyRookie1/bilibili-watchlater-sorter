@@ -8,6 +8,8 @@
   const FULL = globalThis.WatchLaterFullNative;
   let queue = Promise.resolve();
   let nativeEpoch = 0;
+  let prepareEpoch = 0;
+  let modeEpoch = 0;
   let lastCustomItems = null;
   let customActive = false;
   // The content script marks the actual dropdown entries. Never treat the
@@ -37,6 +39,11 @@
         (request.type === 'SET_MODE' && !MODES.isSortMode(request.mode))) return;
 
     const requestedEpoch = nativeEpoch;
+    // A foreground click preempts background pagination after its current
+    // native request finishes, instead of waiting for every preload batch.
+    if (request.type === 'SET_MODE') prepareEpoch++;
+    const requestedPrepareEpoch = prepareEpoch;
+    const requestedModeEpoch = request.type === 'SET_MODE' ? ++modeEpoch : modeEpoch;
     queue = queue.catch(() => {}).then(async () => {
       let result;
       try {
@@ -44,13 +51,14 @@
         if (!store) throw new Error('未找到 B站原生 Pinia list store');
         if (request.type === 'PREPARE') {
           // Only load the native cards; their order stays Bilibili default.
-          result = await FULL.prepare(store);
+          result = await FULL.prepare(store, () => requestedPrepareEpoch === prepareEpoch);
         } else {
           FULL.assertMetadata(request.items);
-          if (requestedEpoch !== nativeEpoch) throw new Error('已切换至 B站原生排序');
+          if (requestedEpoch !== nativeEpoch || requestedModeEpoch !== modeEpoch)
+            throw new Error('已切换排序选项');
           result = await FULL.sortFull(store, request.items, request.mode, MODES.sortVideos,
-            () => requestedEpoch === nativeEpoch);
-          if (requestedEpoch === nativeEpoch) {
+            () => requestedEpoch === nativeEpoch && requestedModeEpoch === modeEpoch);
+          if (requestedEpoch === nativeEpoch && requestedModeEpoch === modeEpoch) {
             lastCustomItems = request.items;
             customActive = true;
           }

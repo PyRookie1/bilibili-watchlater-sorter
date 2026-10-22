@@ -259,3 +259,22 @@ test('equal-count identity replacement signals a refresh rather than applying st
   );
   assert.deepEqual(mock.state.watchlaterList.map(x => x.aid), raw.map(x => x.aid));
 });
+
+test('foreground request interrupts native background PREPARE between batches', async () => {
+  const raw = rawVideos(80);
+  const mock = storeFor(raw);
+  let active = true;
+  let calls = 0;
+  const load = mock.store.loadMoreWatchlaterList.bind(mock.store);
+  mock.store.loadMoreWatchlaterList = async () => {
+    await load();
+    calls++;
+    active = false;
+  };
+  await assert.rejects(native.prepare(mock.store, () => active), /后台预加载已让位/);
+  assert.equal(calls, 1, 'do not load the remaining batches after user selection');
+  assert.equal(mock.state.watchlaterList.length, 40);
+  const result = await native.sortFull(mock.store, raw, 'published-desc', sortVideos);
+  assert.equal(result.count, 80);
+  assert.equal(mock.state.watchlaterList[0].aid, 80);
+});
